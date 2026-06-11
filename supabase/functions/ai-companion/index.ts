@@ -16,7 +16,7 @@
  *                    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
  *                    SUPABASE_ANON_KEY (for internal TTS call)
  * Optional overrides: AI_BASE_URL (default https://api.cerebras.ai/v1),
- *                     AI_MODEL (default llama3.3-70b)
+ *                     AI_MODEL (default gpt-oss-120b; or zai-glm-4.7)
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -381,10 +381,10 @@ serve(async (req: Request) => {
     // secrets so you can swap to Groq/OpenAI without a code change:
     //   AI_BASE_URL  e.g. https://api.cerebras.ai/v1  (default)
     //                     https://api.groq.com/openai/v1
-    //   AI_MODEL     e.g. llama3.3-70b (default — note: Cerebras has NO hyphen
-    //                between "llama" and the version, unlike Groq's llama-3.3-70b)
+    //   AI_MODEL     e.g. gpt-oss-120b (default). This account also has
+    //                zai-glm-4.7 — both support tool/function calling.
     const aiBaseUrl = Deno.env.get('AI_BASE_URL') ?? 'https://api.cerebras.ai/v1';
-    const aiModel = Deno.env.get('AI_MODEL') ?? 'llama3.3-70b';
+    const aiModel = Deno.env.get('AI_MODEL') ?? 'gpt-oss-120b';
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace('Bearer ', '');
