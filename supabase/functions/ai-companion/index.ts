@@ -368,23 +368,45 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    // Accept the key under any of these secret names (kept as ANTHROPIC_API_KEY
-    // in this project even though the provider is now Cerebras).
-    const aiKey =
-      Deno.env.get('CEREBRAS_API_KEY') ??
-      Deno.env.get('ANTHROPIC_API_KEY') ??
-      Deno.env.get('GROQ_API_KEY');
+    // ── Provider chain (all OpenAI-compatible) ─────────────────────────────
+    // Tried in order. When one is rate-limited/overloaded (429/5xx) and retries
+    // are exhausted, we fall through to the next provider. Both Cerebras and
+    // Groq host gpt-oss-120b and support tool calling.
+    //
+    // Cerebras key is stored under ANTHROPIC_API_KEY in this project (legacy
+    // name); Groq under GROQ_API_KEY.
+    const cerebrasKey = Deno.env.get('CEREBRAS_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY');
+    const groqKey = Deno.env.get('GROQ_API_KEY');
 
-    if (!aiKey) return json({ error: 'AI key not configured (set ANTHROPIC_API_KEY).' }, 503);
+    interface Provider {
+      name: string;
+      baseUrl: string;
+      key: string;
+      model: string;
+    }
 
-    // Cerebras is OpenAI-compatible. Base URL + model are overridable via
-    // secrets so you can swap to Groq/OpenAI without a code change:
-    //   AI_BASE_URL  e.g. https://api.cerebras.ai/v1  (default)
-    //                     https://api.groq.com/openai/v1
-    //   AI_MODEL     e.g. gpt-oss-120b (default). This account also has
-    //                zai-glm-4.7 — both support tool/function calling.
-    const aiBaseUrl = Deno.env.get('AI_BASE_URL') ?? 'https://api.cerebras.ai/v1';
-    const aiModel = Deno.env.get('AI_MODEL') ?? 'gpt-oss-120b';
+    const providers: Provider[] = [];
+    if (cerebrasKey) {
+      providers.push({
+        name: 'cerebras',
+        baseUrl: 'https://api.cerebras.ai/v1',
+        key: cerebrasKey,
+        model: Deno.env.get('AI_MODEL') ?? 'gpt-oss-120b',
+      });
+    }
+    if (groqKey) {
+      providers.push({
+        name: 'groq',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        key: groqKey,
+        // Groq namespaces the model as openai/gpt-oss-120b.
+        model: Deno.env.get('GROQ_MODEL') ?? 'openai/gpt-oss-120b',
+      });
+    }
+
+    if (providers.length === 0) {
+      return json({ error: 'AI key not configured (set ANTHROPIC_API_KEY or GROQ_API_KEY).' }, 503);
+    }
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace('Bearer ', '');
@@ -464,6 +486,16 @@ serve(async (req: Request) => {
       .filter(Boolean)
       .join('\n');
 
+    // Voice turns are latency-sensitive and should be the most reliable, so try
+    // Groq first for them (fast LPU inference); text turns keep Cerebras-first.
+    if (useVoice) {
+      providers.sort((a, b) => (a.name === 'groq' ? -1 : b.name === 'groq' ? 1 : 0));
+    }
+    console.log(
+      `[ai-companion] useVoice=${useVoice} provider order:`,
+      providers.map((p) => p.name).join(' → '),
+    );
+
     // ── Agent loop (OpenAI Chat Completions / Cerebras format) ───────────────
     // System prompt is the first message; history + new user turn follow.
     // deno-lint-ignore no-explicit-any
@@ -476,29 +508,65 @@ serve(async (req: Request) => {
     const actions: string[] = [];
     let replyText = '';
 
-    for (let turn = 0; turn < 5; turn++) {
-      const aiRes = await fetch(`${aiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${aiKey}`,
-        },
-        body: JSON.stringify({
-          model: aiModel,
-          max_tokens: 1024,
-          messages,
-          tools: OPENAI_TOOLS,
-          tool_choice: 'auto',
-        }),
-      });
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-      if (!aiRes.ok) {
-        const errBody = await aiRes.text();
-        throw new Error(`AI API ${aiRes.status}: ${errBody}`);
+    // Call the chat endpoint across the provider chain. For each provider we
+    // retry on 429/5xx with exponential backoff; if still failing we fall
+    // through to the next provider (Cerebras → Groq). Returns parsed JSON.
+    // deno-lint-ignore no-explicit-any
+    const callAI = async (): Promise<any> => {
+      let lastErr = '';
+      for (const p of providers) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          let res: Response;
+          try {
+            res = await fetch(`${p.baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${p.key}`,
+              },
+              body: JSON.stringify({
+                model: p.model,
+                max_tokens: 1024,
+                messages,
+                tools: OPENAI_TOOLS,
+                tool_choice: 'auto',
+              }),
+            });
+          } catch (e) {
+            // Network-level failure — try next provider.
+            lastErr = `${p.name} fetch failed: ${(e as Error).message}`;
+            console.log('[ai-companion]', lastErr);
+            break;
+          }
+
+          if (res.ok) {
+            console.log(`[ai-companion] served by ${p.name} (${p.model})`);
+            return await res.json();
+          }
+
+          lastErr = `${p.name} ${res.status}: ${await res.text()}`;
+
+          // Retry same provider on overload/rate-limit/transient server errors.
+          if (res.status === 429 || res.status >= 500) {
+            const backoff = 400 * Math.pow(2, attempt); // 400ms, 800ms, 1600ms
+            console.log(`[ai-companion] ${p.name} ${res.status}; retry in ${backoff}ms`);
+            await sleep(backoff);
+            continue;
+          }
+          // Non-retryable (400/404/401) — stop retrying this provider, try next.
+          console.log(`[ai-companion] ${p.name} non-retryable: ${lastErr}`);
+          break;
+        }
+        console.log(`[ai-companion] provider ${p.name} exhausted, falling through`);
       }
+      throw new Error(`All AI providers failed. Last: ${lastErr || 'unknown'}`);
+    };
 
+    for (let turn = 0; turn < 5; turn++) {
       // deno-lint-ignore no-explicit-any
-      const aiData = (await aiRes.json()) as any;
+      const aiData = (await callAI()) as any;
 
       // Some gateways return an error object with HTTP 200 instead of a 4xx.
       if (aiData?.error) {

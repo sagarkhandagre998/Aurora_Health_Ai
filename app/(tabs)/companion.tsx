@@ -27,8 +27,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
+import {
+  useAudioRecorder,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
+
 import { sendToCompanion, CompanionMessage } from '@/lib/ai';
-import { startRecording, stopRecordingAndTranscribe, speakText } from '@/lib/voice';
+import { transcribeAudio, speakText } from '@/lib/voice';
 
 type OrbStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -179,6 +186,10 @@ export default function CompanionScreen() {
   const listRef = useRef<FlatList>(null);
   const historyRef = useRef<CompanionMessage[]>([]);
 
+  // expo-audio recorder (must be created via the hook — see lib/voice.ts note).
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recordStartRef = useRef(0);
+
   // Greeting on mount
   useEffect(() => {
     const name = profile?.name ?? 'there';
@@ -240,20 +251,36 @@ export default function CompanionScreen() {
     setIsRecording(true);
     setStatus('listening');
     try {
-      await startRecording();
-    } catch {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        throw new Error('Microphone permission denied. Enable it in Settings to use voice.');
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordStartRef.current = Date.now();
+    } catch (err) {
+      console.error('[Aurora] startRecording failed:', err);
       setIsRecording(false);
       setStatus('idle');
-      showToast('Microphone not available', 'error');
+      showToast(err instanceof Error ? err.message : 'Microphone not available', 'error');
     }
-  }, [status, showToast]);
+  }, [status, showToast, audioRecorder]);
 
   const handleMicPressOut = useCallback(async () => {
     if (!isRecording) return;
     setIsRecording(false);
     setStatus('thinking');
     try {
-      const transcript = await stopRecordingAndTranscribe();
+      await audioRecorder.stop();
+      // Ignore ultra-short taps that produce an empty/corrupt clip.
+      const elapsed = Date.now() - recordStartRef.current;
+      const uri = audioRecorder.uri;
+      if (elapsed < 500 || !uri) {
+        setStatus('idle');
+        return;
+      }
+      const transcript = await transcribeAudio(uri);
       if (!transcript?.trim()) { setStatus('idle'); return; }
       addMessage({ id: `u-${Date.now()}`, role: 'user', content: transcript });
       const res = await sendToCompanion(historyRef.current, true);
@@ -271,7 +298,7 @@ export default function CompanionScreen() {
     } finally {
       setStatus('idle');
     }
-  }, [isRecording, addMessage, showToast]);
+  }, [isRecording, addMessage, showToast, audioRecorder]);
 
   const handlePrompt = useCallback((prompt: string) => {
     setTextInput(prompt.replace(/^[^\s]+\s/, ''));
