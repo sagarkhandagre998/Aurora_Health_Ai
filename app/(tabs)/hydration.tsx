@@ -19,7 +19,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
 import { format, subDays } from 'date-fns';
 import BottomSheet, { BottomSheetView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
-import Confetti from 'react-native-fast-confetti';
+import { Confetti } from 'react-native-fast-confetti';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';

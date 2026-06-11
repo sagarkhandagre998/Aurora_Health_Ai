@@ -5,8 +5,9 @@
     "paths": {
       "@/*": ["./*"],
       "@app/*": ["./app/*"],
-      "@assets/*": ["./assets/*"]
-    }
+      "@assets/*": ["./assets/*"],
+    },
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules", "supabase/functions"],
 }

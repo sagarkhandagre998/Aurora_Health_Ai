@@ -82,7 +82,10 @@ function HabitRow({ habit, completed, onComplete, onLongPress, theme }: HabitRow
       <TouchableOpacity
         style={[
           styles.checkBtn,
-          { backgroundColor: completed ? theme.habits : 'transparent', borderColor: completed ? theme.habits : theme.border },
+          {
+            backgroundColor: completed ? theme.habits : 'transparent',
+            borderColor: completed ? theme.habits : theme.border,
+          },
         ]}
         onPress={() => onComplete(habit.id)}
       >
@@ -106,7 +109,13 @@ export default function HabitsScreen() {
   const sheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['70%', '92%'], []);
 
-  const { control, handleSubmit, reset, setValue, formState: { errors } } = useForm<HabitForm>({
+  const {
+    control,
+    handleSubmit,
+    reset,
+    setValue,
+    formState: { errors },
+  } = useForm<HabitForm>({
     resolver: zodResolver(habitSchema),
     defaultValues: { name: '', icon: '✅', frequency: 'daily', targetPerDay: 1 },
   });
@@ -114,24 +123,45 @@ export default function HabitsScreen() {
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
     const [habRes, compRes] = await Promise.all([
-      supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase
+        .from('habits')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
       supabase.from('habit_completions').select('*').eq('user_id', user.id).eq('date', today),
     ]);
     if (habRes.data) {
-      dispatch(setHabits(habRes.data.map((r) => ({
-        id: r.id, name: r.name, icon: r.icon ?? undefined,
-        frequency: r.frequency, targetPerDay: r.target_per_day,
-        status: r.status, createdAt: r.created_at,
-      }))));
+      dispatch(
+        setHabits(
+          habRes.data.map((r) => ({
+            id: r.id,
+            name: r.name,
+            icon: r.icon ?? undefined,
+            frequency: r.frequency,
+            targetPerDay: r.target_per_day,
+            status: r.status,
+            createdAt: r.created_at,
+          })),
+        ),
+      );
     }
     if (compRes.data) {
-      dispatch(setCompletions(compRes.data.map((r) => ({
-        id: r.id, habitId: r.habit_id, date: r.date, count: r.count,
-      }))));
+      dispatch(
+        setCompletions(
+          compRes.data.map((r) => ({
+            id: r.id,
+            habitId: r.habit_id,
+            date: r.date,
+            count: r.count,
+          })),
+        ),
+      );
     }
   }, [user?.id, today, dispatch]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -139,73 +169,118 @@ export default function HabitsScreen() {
     setRefreshing(false);
   }, [fetchData]);
 
-  const handleComplete = useCallback(async (habitId: string) => {
-    if (!user?.id) return;
-    const completion: HabitCompletion = {
-      id: `tmp-${Date.now()}`, habitId, date: today, count: 1,
-    };
-    dispatch(upsertCompletion(completion));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      const { data, error } = await supabase
-        .from('habit_completions')
-        .upsert({ user_id: user.id, habit_id: habitId, date: today, count: 1 }, { onConflict: 'user_id,habit_id,date' })
-        .select().single();
-      if (error) throw error;
-      dispatch(upsertCompletion({ id: data.id, habitId: data.habit_id, date: data.date, count: data.count }));
-      showToast('Habit completed! 🎉', 'success');
-    } catch {
-      showToast('Could not save completion', 'error');
-    }
-  }, [user?.id, today, dispatch, showToast]);
+  const handleComplete = useCallback(
+    async (habitId: string) => {
+      if (!user?.id) return;
+      const completion: HabitCompletion = {
+        id: `tmp-${Date.now()}`,
+        habitId,
+        date: today,
+        count: 1,
+      };
+      dispatch(upsertCompletion(completion));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      try {
+        const { data, error } = await supabase
+          .from('habit_completions')
+          .upsert(
+            { user_id: user.id, habit_id: habitId, date: today, count: 1 },
+            { onConflict: 'user_id,habit_id,date' },
+          )
+          .select()
+          .single();
+        if (error) throw error;
+        dispatch(
+          upsertCompletion({
+            id: data.id,
+            habitId: data.habit_id,
+            date: data.date,
+            count: data.count,
+          }),
+        );
+        showToast('Habit completed! 🎉', 'success');
+      } catch {
+        showToast('Could not save completion', 'error');
+      }
+    },
+    [user?.id, today, dispatch, showToast],
+  );
 
-  const handleLongPress = useCallback((habit: Habit) => {
-    Alert.alert(habit.name, 'What would you like to do?', [
-      { text: 'Pause', onPress: async () => {
-        dispatch(updateHabit({ ...habit, status: 'paused' }));
-        await supabase.from('habits').update({ status: 'paused' }).eq('id', habit.id);
-        showToast('Habit paused', 'success');
-      }},
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        dispatch(removeHabit(habit.id));
-        await supabase.from('habits').delete().eq('id', habit.id);
-        showToast('Habit deleted', 'success');
-      }},
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [dispatch, showToast]);
+  const handleLongPress = useCallback(
+    (habit: Habit) => {
+      Alert.alert(habit.name, 'What would you like to do?', [
+        {
+          text: 'Pause',
+          onPress: async () => {
+            dispatch(updateHabit({ ...habit, status: 'paused' }));
+            await supabase.from('habits').update({ status: 'paused' }).eq('id', habit.id);
+            showToast('Habit paused', 'success');
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            dispatch(removeHabit(habit.id));
+            await supabase.from('habits').delete().eq('id', habit.id);
+            showToast('Habit deleted', 'success');
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    },
+    [dispatch, showToast],
+  );
 
-  const onAddHabit = useCallback(async (form: HabitForm) => {
-    if (!user?.id) return;
-    const tempHabit: Habit = {
-      id: `tmp-${Date.now()}`, name: form.name, icon: form.icon,
-      frequency: form.frequency, targetPerDay: form.targetPerDay,
-      status: 'active', createdAt: new Date().toISOString(),
-    };
-    dispatch(addHabit(tempHabit));
-    sheetRef.current?.close();
-    reset();
-    try {
-      const { data, error } = await supabase
-        .from('habits')
-        .insert({
-          user_id: user.id, name: form.name, icon: form.icon,
-          frequency: form.frequency, target_per_day: form.targetPerDay, status: 'active',
-        })
-        .select().single();
-      if (error) throw error;
-      dispatch(removeHabit(tempHabit.id));
-      dispatch(addHabit({
-        id: data.id, name: data.name, icon: data.icon ?? undefined,
-        frequency: data.frequency, targetPerDay: data.target_per_day,
-        status: data.status, createdAt: data.created_at,
-      }));
-      showToast('Habit created! ✅', 'success');
-    } catch {
-      dispatch(removeHabit(tempHabit.id));
-      showToast('Could not create habit', 'error');
-    }
-  }, [user?.id, dispatch, showToast, reset]);
+  const onAddHabit = useCallback(
+    async (form: HabitForm) => {
+      if (!user?.id) return;
+      const tempHabit: Habit = {
+        id: `tmp-${Date.now()}`,
+        name: form.name,
+        icon: form.icon,
+        frequency: form.frequency,
+        targetPerDay: form.targetPerDay,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      };
+      dispatch(addHabit(tempHabit));
+      sheetRef.current?.close();
+      reset();
+      try {
+        const { data, error } = await supabase
+          .from('habits')
+          .insert({
+            user_id: user.id,
+            name: form.name,
+            icon: form.icon,
+            frequency: form.frequency,
+            target_per_day: form.targetPerDay,
+            status: 'active',
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        dispatch(removeHabit(tempHabit.id));
+        dispatch(
+          addHabit({
+            id: data.id,
+            name: data.name,
+            icon: data.icon ?? undefined,
+            frequency: data.frequency,
+            targetPerDay: data.target_per_day,
+            status: data.status,
+            createdAt: data.created_at,
+          }),
+        );
+        showToast('Habit created! ✅', 'success');
+      } catch {
+        dispatch(removeHabit(tempHabit.id));
+        showToast('Could not create habit', 'error');
+      }
+    },
+    [user?.id, dispatch, showToast, reset],
+  );
 
   const completedCount = todayCompletionIds.length;
   const progress = activeHabits.length > 0 ? completedCount / activeHabits.length : 0;
@@ -215,13 +290,17 @@ export default function HabitsScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+        }
       >
         {/* Header */}
         <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.headerRow}>
           <View>
             <Text style={[styles.title, { color: theme.text }]}>Habits</Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{format(new Date(), 'EEEE, MMM d')}</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+              {format(new Date(), 'EEEE, MMM d')}
+            </Text>
           </View>
           <TouchableOpacity
             style={[styles.addBtn, { backgroundColor: theme.habits }]}
@@ -237,7 +316,8 @@ export default function HabitsScreen() {
           <LinearGradient
             colors={theme.isDark ? ['#0D1F18', '#0F2A1A'] : ['#F0FFF6', '#E6FAF0']}
             style={styles.progressCard}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
           >
             <ProgressRing
               progress={progress}
@@ -245,7 +325,6 @@ export default function HabitsScreen() {
               color={theme.habits}
               label={`${completedCount}/${activeHabits.length}`}
               strokeWidth={9}
-              labelFontSize={16}
             />
             <View style={styles.progressInfo}>
               <Text style={[styles.progressTitle, { color: theme.text }]}>
@@ -281,7 +360,6 @@ export default function HabitsScreen() {
                   theme={theme}
                 />
               )}
-              estimatedItemSize={72}
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
             />
@@ -295,7 +373,10 @@ export default function HabitsScreen() {
             {PRESETS.map((p) => (
               <TouchableOpacity
                 key={p.name}
-                style={[styles.presetChip, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[
+                  styles.presetChip,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}
                 onPress={() => {
                   setValue('name', p.name);
                   setValue('icon', p.icon);
@@ -321,7 +402,9 @@ export default function HabitsScreen() {
         backgroundStyle={{ backgroundColor: theme.card }}
         handleIndicatorStyle={{ backgroundColor: theme.border }}
       >
-        <BottomSheetScrollView contentContainerStyle={[styles.sheetContent, { backgroundColor: theme.card }]}>
+        <BottomSheetScrollView
+          contentContainerStyle={[styles.sheetContent, { backgroundColor: theme.card }]}
+        >
           <Text style={[styles.sheetTitle, { color: theme.text }]}>New Habit</Text>
 
           <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Name</Text>
@@ -330,7 +413,14 @@ export default function HabitsScreen() {
             name="name"
             render={({ field: { value, onChange } }) => (
               <BottomSheetTextInput
-                style={[styles.input, { color: theme.text, borderColor: errors.name ? theme.error : theme.border, backgroundColor: theme.background }]}
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: errors.name ? theme.error : theme.border,
+                    backgroundColor: theme.background,
+                  },
+                ]}
                 placeholder="e.g. Morning walk"
                 placeholderTextColor={theme.textSecondary}
                 value={value}
@@ -338,7 +428,9 @@ export default function HabitsScreen() {
               />
             )}
           />
-          {errors.name && <Text style={[styles.errorText, { color: theme.error }]}>{errors.name.message}</Text>}
+          {errors.name && (
+            <Text style={[styles.errorText, { color: theme.error }]}>{errors.name.message}</Text>
+          )}
 
           <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Icon (emoji)</Text>
           <Controller
@@ -346,7 +438,14 @@ export default function HabitsScreen() {
             name="icon"
             render={({ field: { value, onChange } }) => (
               <BottomSheetTextInput
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.background,
+                  },
+                ]}
                 placeholder="✅"
                 placeholderTextColor={theme.textSecondary}
                 value={value}
@@ -364,10 +463,20 @@ export default function HabitsScreen() {
                 {(['daily', 'weekly'] as const).map((f) => (
                   <TouchableOpacity
                     key={f}
-                    style={[styles.segment, { backgroundColor: value === f ? theme.habits : theme.background, borderColor: theme.border }]}
+                    style={[
+                      styles.segment,
+                      {
+                        backgroundColor: value === f ? theme.habits : theme.background,
+                        borderColor: theme.border,
+                      },
+                    ]}
                     onPress={() => onChange(f)}
                   >
-                    <Text style={[styles.segmentText, { color: value === f ? '#fff' : theme.text }]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
+                    <Text
+                      style={[styles.segmentText, { color: value === f ? '#fff' : theme.text }]}
+                    >
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -381,14 +490,20 @@ export default function HabitsScreen() {
             render={({ field: { value, onChange } }) => (
               <View style={styles.stepperRow}>
                 <TouchableOpacity
-                  style={[styles.stepperBtn, { backgroundColor: theme.background, borderColor: theme.border }]}
+                  style={[
+                    styles.stepperBtn,
+                    { backgroundColor: theme.background, borderColor: theme.border },
+                  ]}
                   onPress={() => onChange(Math.max(1, value - 1))}
                 >
                   <Ionicons name="remove" size={20} color={theme.text} />
                 </TouchableOpacity>
                 <Text style={[styles.stepperVal, { color: theme.text }]}>{value}</Text>
                 <TouchableOpacity
-                  style={[styles.stepperBtn, { backgroundColor: theme.background, borderColor: theme.border }]}
+                  style={[
+                    styles.stepperBtn,
+                    { backgroundColor: theme.background, borderColor: theme.border },
+                  ]}
                   onPress={() => onChange(Math.min(20, value + 1))}
                 >
                   <Ionicons name="add" size={20} color={theme.text} />
@@ -412,27 +527,78 @@ export default function HabitsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 12 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.4 },
   subtitle: { fontSize: 14, marginTop: 2, fontWeight: '500' },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+  },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  progressCard: { borderRadius: 22, padding: 20, marginBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 },
+  progressCard: {
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
   progressInfo: { flex: 1 },
   progressTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   progressSubtitle: { fontSize: 13, fontWeight: '500' },
   sectionTitle: { fontSize: 17, fontWeight: '700', marginBottom: 12 },
-  habitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
+  habitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
   habitLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
   habitEmoji: { fontSize: 26 },
   habitInfo: { flex: 1 },
   habitName: { fontSize: 16, fontWeight: '700' },
   habitFreq: { fontSize: 12, marginTop: 2, fontWeight: '500' },
-  checkBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  checkBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyCard: { borderRadius: 14, padding: 20, alignItems: 'center', marginBottom: 16 },
   emptyText: { fontSize: 14, textAlign: 'center', lineHeight: 21 },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  presetChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1 },
+  presetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
   presetEmoji: { fontSize: 16 },
   presetName: { fontSize: 13, fontWeight: '600' },
   sheetContent: { padding: 24, gap: 10 },
@@ -444,7 +610,14 @@ const styles = StyleSheet.create({
   segment: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1.5, alignItems: 'center' },
   segmentText: { fontSize: 14, fontWeight: '700' },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  stepperBtn: { width: 44, height: 44, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  stepperBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   stepperVal: { fontSize: 22, fontWeight: '800', minWidth: 32, textAlign: 'center' },
   saveBtn: { borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 8 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
