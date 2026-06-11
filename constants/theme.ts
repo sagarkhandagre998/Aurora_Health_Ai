@@ -1,36 +1,87 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
-const tintColorLight = '#007AFF';
-const tintColorDark = '#0a84ff';
+// Aurora — calm, premium, supportive palette
+const primaryLight = '#4F7EF5'; // calm cornflower blue
+const primaryDark = '#6B96FF';
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    textSecondary: '#666666',
-    background: '#f5f5f5',
-    card: '#ffffff',
-    border: '#e5e7eb',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-    error: '#ff3b30',
-    success: '#34c759',
+    text: '#1E2235',
+    textSecondary: '#6B7280',
+    background: '#F4F6FF',
+    card: '#FFFFFF',
+    border: '#E8ECFF',
+    tint: primaryLight,
+    icon: '#6B7280',
+    tabIconDefault: '#9CA3AF',
+    tabIconSelected: primaryLight,
+    error: '#EF4444',
+    success: '#22C55E',
+    // Domain colors
+    hydration: '#34C5FF',
+    sleep: '#8B7CF0',
+    habits: '#4CAF82',
+    nutrition: '#F5A623',
+    streak: '#FF6B6B',
+    // Gradients (start, end)
+    gradientStart: '#EEF2FF',
+    gradientEnd: '#F4F6FF',
   },
   dark: {
-    text: '#ECEDEE',
-    textSecondary: '#9BA1A6',
-    background: '#000000',
-    card: '#1c1c1e',
-    border: '#38383a',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-    error: '#ff453a',
-    success: '#32d74b',
+    text: '#E8EBF5',
+    textSecondary: '#9CA3AF',
+    background: '#0D0F1A',
+    card: '#1A1D2E',
+    border: '#252840',
+    tint: primaryDark,
+    icon: '#9CA3AF',
+    tabIconDefault: '#6B7280',
+    tabIconSelected: primaryDark,
+    error: '#F87171',
+    success: '#4ADE80',
+    // Domain colors
+    hydration: '#34C5FF',
+    sleep: '#A78BFA',
+    habits: '#6EE7B7',
+    nutrition: '#FBD38D',
+    streak: '#FC8181',
+    // Gradients
+    gradientStart: '#1A1D2E',
+    gradientEnd: '#0D0F1A',
   },
+};
+
+export const Typography = {
+  displayLarge: { fontSize: 34, fontWeight: '800' as const, letterSpacing: -0.5 },
+  displayMedium: { fontSize: 28, fontWeight: '700' as const, letterSpacing: -0.3 },
+  headingLarge: { fontSize: 22, fontWeight: '700' as const, letterSpacing: -0.2 },
+  headingMedium: { fontSize: 18, fontWeight: '600' as const },
+  headingSmall: { fontSize: 16, fontWeight: '600' as const },
+  bodyLarge: { fontSize: 16, fontWeight: '400' as const, lineHeight: 24 },
+  bodyMedium: { fontSize: 14, fontWeight: '400' as const, lineHeight: 20 },
+  bodySmall: { fontSize: 12, fontWeight: '400' as const, lineHeight: 16 },
+  labelLarge: { fontSize: 14, fontWeight: '600' as const, letterSpacing: 0.1 },
+  labelSmall: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase' as const,
+  },
+};
+
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+};
+
+export const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  full: 999,
 };

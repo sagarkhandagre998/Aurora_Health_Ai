@@ -1,5 +1,23 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { HealthEntry, Goal } from '@/types';
+
+// Legacy types kept here after types/index.ts was replaced by Aurora domain types
+interface HealthEntry {
+  id: string;
+  date: string;
+  mood: string;
+  waterIntake: number;
+  exercise: string;
+  sleepHours: number;
+  notes: string;
+}
+interface Goal {
+  id: string;
+  title: string;
+  type: 'WATER' | 'SLEEP' | 'STEPS' | 'CUSTOM';
+  targetValue: number;
+  currentValue: number;
+  unit: string;
+}
 
 interface HealthState {
   entries: HealthEntry[];
@@ -58,13 +76,7 @@ const recalculateGoalProgress = (state: HealthState) => {
   });
 };
 
-export const {
-  addEntry,
-  updateEntry,
-  addGoal,
-  recalculateGoals,
-  deleteGoal,
-  deleteEntry,
-} = healthSlice.actions;
+export const { addEntry, updateEntry, addGoal, recalculateGoals, deleteGoal, deleteEntry } =
+  healthSlice.actions;
 
 export default healthSlice.reducer;

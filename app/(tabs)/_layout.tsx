@@ -1,9 +1,9 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { View } from 'react-native';
-
+import { Platform, StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useTheme } from '@/hooks/useTheme';
 
 export default function TabLayout() {
@@ -13,81 +13,137 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
+        tabBarInactiveTintColor: theme.tabIconDefault,
         headerShown: false,
         tabBarButton: HapticTab,
-        lazy: false, // Pre-render tabs to avoid flickering on first switch
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: Platform.OS === 'ios' ? 88 : 68,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '600',
+          letterSpacing: 0.2,
         },
       }}
     >
-      {/* 1st Tab: Now the Index (Dashboard) */}
       <Tabs.Screen
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.bar.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'grid' : 'grid-outline'} size={23} color={color} />
+          ),
         }}
       />
 
-      {/* 2nd Tab */}
       <Tabs.Screen
-        name="history"
+        name="hydration"
         options={{
-          title: 'History',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="clock.fill" color={color} />,
+          title: 'Water',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'water' : 'water-outline'} size={23} color={color} />
+          ),
         }}
       />
 
-      {/* 3rd Tab: Floating Action Button (Log) */}
       <Tabs.Screen
-        name="log"
+        name="sleep"
+        options={{
+          title: 'Sleep',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'moon' : 'moon-outline'} size={23} color={color} />
+          ),
+        }}
+      />
+
+      {/* Center FAB — Aurora AI Companion */}
+      <Tabs.Screen
+        name="companion"
         options={{
           title: '',
           tabBarLabel: () => null,
           tabBarIcon: () => (
-            <View
-              style={{
-                top: -15, // Lift above the tab bar
-                width: 60,
-                height: 60,
-                borderRadius: 30,
-                backgroundColor: theme.tint,
-                justifyContent: 'center',
-                alignItems: 'center',
-                shadowColor: theme.tint,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.4,
-                shadowRadius: 6,
-                elevation: 8,
-                borderWidth: 4,
-                borderColor: theme.background, // Creates a nice "cutout" visual effect against the page background!
-              }}
-            >
-              <IconSymbol size={32} name="plus" color="#fff" />
+            <View style={styles.fabWrapper}>
+              <LinearGradient
+                colors={['#4F7EF5', '#8B7CF0']}
+                style={styles.fab}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name="mic" size={26} color="#FFFFFF" />
+              </LinearGradient>
             </View>
           ),
         }}
       />
 
-      {/* 4th Tab */}
       <Tabs.Screen
-        name="explore"
+        name="habits"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="safari.fill" color={color} />,
+          title: 'Habits',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'checkmark-circle' : 'checkmark-circle-outline'}
+              size={23}
+              color={color}
+            />
+          ),
         }}
       />
 
-      {/* 5th Tab */}
       <Tabs.Screen
-        name="goals"
+        name="nutrition"
         options={{
-          title: 'Goals',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="star.fill" color={color} />,
+          title: 'Nutrition',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'restaurant' : 'restaurant-outline'}
+              size={23}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'person-circle' : 'person-circle-outline'}
+              size={24}
+              color={color}
+            />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  fabWrapper: {
+    top: -18,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    shadowColor: '#4F7EF5',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  fab: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
