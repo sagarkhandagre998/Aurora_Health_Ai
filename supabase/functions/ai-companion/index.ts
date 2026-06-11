@@ -91,7 +91,7 @@ const TOOLS = [
   },
   {
     name: 'complete_habit',
-    description: "Mark a habit as completed for today. Finds the habit by name (partial match).",
+    description: 'Mark a habit as completed for today. Finds the habit by name (partial match).',
     input_schema: {
       type: 'object',
       properties: {
@@ -291,13 +291,23 @@ async function executeTool(
       ]);
 
       // deno-lint-ignore no-explicit-any
-      const totalWater = (waterRes.data ?? []).reduce((s: number, r: any) => s + (r.amount_ml ?? 0), 0);
+      const totalWater = (waterRes.data ?? []).reduce(
+        (s: number, r: any) => s + (r.amount_ml ?? 0),
+        0,
+      );
       // deno-lint-ignore no-explicit-any
-      const totalCals  = (mealsRes.data ?? []).reduce((s: number, m: any) => s + (m.calories ?? 0), 0);
+      const totalCals = (mealsRes.data ?? []).reduce(
+        (s: number, m: any) => s + (m.calories ?? 0),
+        0,
+      );
       // deno-lint-ignore no-explicit-any
-      const avgSleep   = sleepRes.data?.length
-        // deno-lint-ignore no-explicit-any
-        ? (sleepRes.data.reduce((s: number, r: any) => s + (r.duration_min ?? 0), 0) / sleepRes.data.length / 60).toFixed(1)
+      const avgSleep = sleepRes.data?.length
+        ? // deno-lint-ignore no-explicit-any
+          (
+            sleepRes.data.reduce((s: number, r: any) => s + (r.duration_min ?? 0), 0) /
+            sleepRes.data.length /
+            60
+          ).toFixed(1)
         : null;
 
       return {
@@ -339,16 +349,20 @@ serve(async (req: Request) => {
     if (!authHeader) return json({ error: 'Missing Authorization header' }, 401);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const anonKey     = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    // Supports both freemodel.dev (FREEMODEL_API_KEY) and direct Anthropic (ANTHROPIC_API_KEY)
+    const anthropicKey = Deno.env.get('FREEMODEL_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY');
 
-    if (!anthropicKey) return json({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
+    if (!anthropicKey) return json({ error: 'FREEMODEL_API_KEY not configured' }, 503);
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace('Bearer ', '');
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
     if (authError || !user) return json({ error: 'Unauthorized' }, 401);
 
     // ── Parse body ─────────────────────────────────────────────────────────
@@ -369,11 +383,7 @@ serve(async (req: Request) => {
 
     // ── Load personalised context ──────────────────────────────────────────
     const [profileRes, waterRes, sleepRes, habitsRes, mealRes, memoryRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('name, goals')
-        .eq('id', user.id)
-        .maybeSingle(),
+      supabase.from('profiles').select('name, goals').eq('id', user.id).maybeSingle(),
       supabase
         .from('water_logs')
         .select('amount_ml')
@@ -386,11 +396,7 @@ serve(async (req: Request) => {
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from('habit_completions')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('date', today),
+      supabase.from('habit_completions').select('id').eq('user_id', user.id).eq('date', today),
       supabase
         .from('meals')
         .select('id')
@@ -406,13 +412,11 @@ serve(async (req: Request) => {
 
     // deno-lint-ignore no-explicit-any
     const waterMl = (waterRes.data ?? []).reduce((s: number, r: any) => s + (r.amount_ml ?? 0), 0);
-    const sleepHours = sleepRes.data
-      ? (sleepRes.data.duration_min / 60).toFixed(1)
-      : 'N/A';
+    const sleepHours = sleepRes.data ? (sleepRes.data.duration_min / 60).toFixed(1) : 'N/A';
     const habitsCount = habitsRes.data?.length ?? 0;
-    const mealCount   = mealRes.data?.length ?? 0;
-    const goalMl      = 2500; // default hydration goal
-    const userName    = (profileRes.data as { name?: string } | null)?.name || 'there';
+    const mealCount = mealRes.data?.length ?? 0;
+    const goalMl = 2500; // default hydration goal
+    const userName = (profileRes.data as { name?: string } | null)?.name || 'there';
 
     // deno-lint-ignore no-explicit-any
     const memories = (memoryRes.data ?? []).map((m: any) => m.observation as string).join('; ');
@@ -431,16 +435,19 @@ serve(async (req: Request) => {
       .join('\n');
 
     // ── Agent loop ─────────────────────────────────────────────────────────
-    const messages: unknown[] = [
-      ...conversationHistory,
-      { role: 'user', content: message },
-    ];
+    const messages: unknown[] = [...conversationHistory, { role: 'user', content: message }];
 
     const actions: string[] = [];
     let replyText = '';
 
     for (let turn = 0; turn < 5; turn++) {
-      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      // Use freemodel.dev Anthropic-compatible endpoint when FREEMODEL_API_KEY is set,
+      // otherwise fall back to the official Anthropic endpoint.
+      const claudeBaseUrl = Deno.env.get('FREEMODEL_API_KEY')
+        ? 'https://cc.freemodel.dev'
+        : 'https://api.anthropic.com';
+
+      const claudeRes = await fetch(`${claudeBaseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -462,7 +469,7 @@ serve(async (req: Request) => {
       }
 
       // deno-lint-ignore no-explicit-any
-      const claudeData = await claudeRes.json() as any;
+      const claudeData = (await claudeRes.json()) as any;
       const { stop_reason, content } = claudeData;
 
       // Append assistant turn to the running conversation.
