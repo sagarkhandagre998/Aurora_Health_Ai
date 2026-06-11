@@ -185,7 +185,7 @@ export default function HabitsScreen() {
           .from('habit_completions')
           .upsert(
             { user_id: user.id, habit_id: habitId, date: today, count: 1 },
-            { onConflict: 'user_id,habit_id,date' },
+            { onConflict: 'habit_id,date' },
           )
           .select()
           .single();
@@ -199,8 +199,12 @@ export default function HabitsScreen() {
           }),
         );
         showToast('Habit completed! 🎉', 'success');
-      } catch {
-        showToast('Could not save completion', 'error');
+      } catch (err) {
+        console.error('[Habits] completion failed:', err);
+        showToast(
+          err instanceof Error ? `Could not save completion: ${err.message}` : 'Could not save completion',
+          'error',
+        );
       }
     },
     [user?.id, today, dispatch, showToast],

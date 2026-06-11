@@ -115,6 +115,21 @@ serve(async (req: Request) => {
 
     if (!text) return json({ error: '"text" field is required and must be non-empty.' }, 400);
 
+    // Strip emoji / pictographs / symbols so the voice doesn't read them aloud
+    // (e.g. "🌟" → "glowing star"). The client UI keeps the original text.
+    text = text
+      .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
+      .replace(/[☀-➿]/g, '') // misc symbols & dingbats (✅ ✨ ☀)
+      .replace(/[←-⇿]/g, '') // arrows
+      .replace(/[⌀-⏿]/g, '') // misc technical (⏰)
+      .replace(/[⬀-⯿]/g, '') // stars/arrows (⭐)
+      .replace(/[︀-️‍⃣]/g, '') // variation selectors, ZWJ, keycap
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    if (!text) return json({ error: 'Nothing to speak after removing symbols.' }, 400);
+
     // Trim to max allowed length to avoid runaway costs.
     if (text.length > MAX_CHARS) {
       text = text.slice(0, MAX_CHARS);

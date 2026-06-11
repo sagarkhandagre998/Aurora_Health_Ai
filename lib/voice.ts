@@ -38,6 +38,34 @@ export async function transcribeAudio(uri: string): Promise<string> {
   return (json.transcript as string) ?? '';
 }
 
+/**
+ * Remove emoji, pictographs and symbol characters so the TTS engine doesn't
+ * read them aloud (e.g. "🌟" → "glowing star"). Kept emoji-free text is used
+ * ONLY for speech — the chat UI still shows the original text with emojis.
+ */
+export function stripForSpeech(text: string): string {
+  return (
+    text
+      // Main emoji planes (😀 🌟 💧 🍎 …) — needs the `u` flag.
+      .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+      // Regional indicator symbols / flags.
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
+      // Misc symbols & dingbats (✨ ✅ ☀ ☔ …) and supplemental arrows.
+      .replace(/[☀-➿]/g, '')
+      // Arrows.
+      .replace(/[←-⇿]/g, '')
+      // Misc technical (⏰ ⌛ …).
+      .replace(/[⌀-⏿]/g, '')
+      // Stars, extra arrows (⭐ U+2B50 …).
+      .replace(/[⬀-⯿]/g, '')
+      // Variation selectors, zero-width joiner, keycap combiner.
+      .replace(/[︀-️‍⃣]/g, '')
+      // Tidy whitespace left behind.
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  );
+}
+
 export async function speakText(text: string, audioBase64?: string): Promise<void> {
   if (audioBase64) {
     const uri = FileSystem.cacheDirectory + 'aurora_tts.mp3';
@@ -47,6 +75,7 @@ export async function speakText(text: string, audioBase64?: string): Promise<voi
     const player = createAudioPlayer({ uri });
     player.play();
   } else {
-    Speech.speak(text, { language: 'en-US', rate: 0.95 });
+    const spoken = stripForSpeech(text);
+    if (spoken) Speech.speak(spoken, { language: 'en-US', rate: 0.95 });
   }
 }
