@@ -1,18 +1,22 @@
 /**
  * ai-companion — Aurora AI edge function.
  *
- * Runs an agentic loop powered by Claude claude-opus-4-5 with tool use.
+ * Runs an agentic loop powered by an OpenAI-compatible LLM (Cerebras by
+ * default; Groq/OpenAI work via AI_BASE_URL/AI_MODEL secrets) with tool use.
  * On each request it:
  *   1. Verifies the caller's JWT via Supabase auth.
  *   2. Loads today's personalised stats to build the system prompt.
- *   3. Executes a Claude agent loop (max 5 turns) that can call any of
- *      the 7 health-data tools against the Postgres DB.
+ *   3. Executes an agent loop (max 5 turns) that can call any of the 7
+ *      health-data tools against the Postgres DB.
  *   4. Optionally calls the /tts function when useVoice = true.
  *   5. Returns { replyText, actions, audioBase64? }.
  *
  * Deploy: supabase functions deploy ai-companion
- * Env vars required: ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+ * Env vars required: ANTHROPIC_API_KEY (holds the Cerebras key in this project),
+ *                    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
  *                    SUPABASE_ANON_KEY (for internal TTS call)
+ * Optional overrides: AI_BASE_URL (default https://api.cerebras.ai/v1),
+ *                     AI_MODEL (default llama-3.3-70b)
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -155,7 +159,20 @@ const TOOLS = [
   },
 ];
 
-// ─── Tool execution ───────────────────────────────────────────────────────────
+// ─── OpenAI-format tool schema (Cerebras / Groq / OpenAI-compatible) ───────────
+// Cerebras uses the OpenAI Chat Completions API, which wraps each tool as
+// { type: 'function', function: { name, description, parameters } }.
+// We derive it from the Anthropic-style TOOLS above so there's a single source.
+
+const OPENAI_TOOLS = TOOLS.map((t) => ({
+  type: 'function' as const,
+  function: {
+    name: t.name,
+    description: t.description,
+    parameters: t.input_schema,
+  },
+}));
+
 
 // deno-lint-ignore no-explicit-any
 async function executeTool(
@@ -351,18 +368,22 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    // Accept the key under either secret name.
-    const anthropicKey = Deno.env.get('FREEMODEL_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY');
+    // Accept the key under any of these secret names (kept as ANTHROPIC_API_KEY
+    // in this project even though the provider is now Cerebras).
+    const aiKey =
+      Deno.env.get('CEREBRAS_API_KEY') ??
+      Deno.env.get('ANTHROPIC_API_KEY') ??
+      Deno.env.get('GROQ_API_KEY');
 
-    if (!anthropicKey) return json({ error: 'AI key not configured (set ANTHROPIC_API_KEY).' }, 503);
+    if (!aiKey) return json({ error: 'AI key not configured (set ANTHROPIC_API_KEY).' }, 503);
 
-    // Endpoint selection (decoupled from the secret NAME):
-    //   - Default to the freemodel.dev Anthropic-compatible gateway, since the
-    //     key in use is a freemodel credit key even though it's stored under
-    //     the ANTHROPIC_API_KEY name.
-    //   - Override with AI_BASE_URL secret to point at api.anthropic.com (or
-    //     any compatible gateway) without a code change.
-    const claudeBaseUrl = Deno.env.get('AI_BASE_URL') ?? 'https://cc.freemodel.dev';
+    // Cerebras is OpenAI-compatible. Base URL + model are overridable via
+    // secrets so you can swap to Groq/OpenAI without a code change:
+    //   AI_BASE_URL  e.g. https://api.cerebras.ai/v1  (default)
+    //                     https://api.groq.com/openai/v1
+    //   AI_MODEL     e.g. llama-3.3-70b (default)
+    const aiBaseUrl = Deno.env.get('AI_BASE_URL') ?? 'https://api.cerebras.ai/v1';
+    const aiModel = Deno.env.get('AI_MODEL') ?? 'llama-3.3-70b';
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace('Bearer ', '');
@@ -442,106 +463,89 @@ serve(async (req: Request) => {
       .filter(Boolean)
       .join('\n');
 
-    // ── Agent loop ─────────────────────────────────────────────────────────
-    const messages: unknown[] = [...conversationHistory, { role: 'user', content: message }];
+    // ── Agent loop (OpenAI Chat Completions / Cerebras format) ───────────────
+    // System prompt is the first message; history + new user turn follow.
+    // deno-lint-ignore no-explicit-any
+    const messages: any[] = [
+      { role: 'system', content: systemPrompt },
+      ...(conversationHistory as unknown[]),
+      { role: 'user', content: message },
+    ];
 
     const actions: string[] = [];
     let replyText = '';
 
     for (let turn = 0; turn < 5; turn++) {
-      const claudeRes = await fetch(`${claudeBaseUrl}/v1/messages`, {
+      const aiRes = await fetch(`${aiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
+          Authorization: `Bearer ${aiKey}`,
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-5',
+          model: aiModel,
           max_tokens: 1024,
-          system: systemPrompt,
-          tools: TOOLS,
           messages,
+          tools: OPENAI_TOOLS,
+          tool_choice: 'auto',
         }),
       });
 
-      if (!claudeRes.ok) {
-        const errBody = await claudeRes.text();
-        throw new Error(`Claude API ${claudeRes.status}: ${errBody}`);
+      if (!aiRes.ok) {
+        const errBody = await aiRes.text();
+        throw new Error(`AI API ${aiRes.status}: ${errBody}`);
       }
 
       // deno-lint-ignore no-explicit-any
-      const claudeData = (await claudeRes.json()) as any;
-      const { stop_reason, content } = claudeData;
+      const aiData = (await aiRes.json()) as any;
 
-      // Diagnostic: log the raw shape so we can see what the gateway returns.
+      // Some gateways return an error object with HTTP 200 instead of a 4xx.
+      if (aiData?.error) {
+        throw new Error(`AI gateway error: ${JSON.stringify(aiData.error)}`);
+      }
+
+      const choice = aiData?.choices?.[0];
+      const assistantMsg = choice?.message;
+      const toolCalls = assistantMsg?.tool_calls as
+        | Array<{ id: string; function: { name: string; arguments: string } }>
+        | undefined;
+
       console.log(
         '[ai-companion] turn',
         turn,
-        'stop_reason=',
-        stop_reason,
+        'finish_reason=',
+        choice?.finish_reason,
+        'tool_calls=',
+        toolCalls?.length ?? 0,
         'content=',
-        JSON.stringify(content)?.slice(0, 800),
+        (assistantMsg?.content ?? '').slice(0, 400),
       );
 
-      // Some gateways return an error object with HTTP 200 instead of a 4xx.
-      if (claudeData?.type === 'error' || claudeData?.error) {
-        throw new Error(`Claude gateway error: ${JSON.stringify(claudeData.error ?? claudeData)}`);
-      }
+      // Append the assistant message verbatim (it may carry tool_calls).
+      if (assistantMsg) messages.push(assistantMsg);
 
-      // Append assistant turn to the running conversation.
-      if (content) messages.push({ role: 'assistant', content });
-
-      // Helper: pull all text blocks out of a content array.
-      // deno-lint-ignore no-explicit-any
-      const extractText = (c: any): string =>
-        Array.isArray(c)
-          ? c
-              // deno-lint-ignore no-explicit-any
-              .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
-              // deno-lint-ignore no-explicit-any
-              .map((b: any) => b.text as string)
-              .join(' ')
-              .trim()
-          : typeof c === 'string'
-            ? c.trim()
-            : '';
-
-      // ── Tool use: execute each tool, collect results, continue ─────────
-      const hasToolUse =
-        stop_reason === 'tool_use' ||
-        (Array.isArray(content) &&
-          // deno-lint-ignore no-explicit-any
-          content.some((b: any) => b?.type === 'tool_use'));
-
-      if (hasToolUse) {
-        // deno-lint-ignore no-explicit-any
-        const toolBlocks = (content as any[]).filter((b: any) => b.type === 'tool_use');
-        const toolResults = await Promise.all(
-          // deno-lint-ignore no-explicit-any
-          toolBlocks.map(async (block: any) => {
-            let result: unknown;
-            try {
-              result = await executeTool(supabase, user.id, today, block.name, block.input);
-              actions.push(block.name);
-            } catch (err) {
-              result = { error: (err as Error).message };
-            }
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify(result),
-            };
-          }),
-        );
-
-        messages.push({ role: 'user', content: toolResults });
+      // ── Tool calls: execute each, append role:"tool" results, continue ───
+      if (toolCalls && toolCalls.length > 0) {
+        for (const call of toolCalls) {
+          let result: unknown;
+          try {
+            const args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+            result = await executeTool(supabase, user.id, today, call.function.name, args);
+            actions.push(call.function.name);
+          } catch (err) {
+            result = { error: (err as Error).message };
+          }
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          });
+        }
         continue;
       }
 
-      // No tool use → this is the assistant's final answer. Extract whatever
-      // text it returned (regardless of the exact stop_reason value) and exit.
-      replyText = extractText(content);
+      // No tool calls → final answer.
+      replyText = (assistantMsg?.content ?? '').trim();
       break;
     }
 
