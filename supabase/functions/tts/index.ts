@@ -115,9 +115,21 @@ serve(async (req: Request) => {
 
     if (!text) return json({ error: '"text" field is required and must be non-empty.' }, 400);
 
-    // Strip emoji / pictographs / symbols so the voice doesn't read them aloud
-    // (e.g. "🌟" → "glowing star"). The client UI keeps the original text.
+    // Strip markdown + emoji / symbols so the voice doesn't read them aloud
+    // (e.g. "**Water**" → "Water", "🌟" → no "glowing star"). The client UI
+    // keeps the original text.
     text = text
+      // Markdown formatting → plain words.
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/_(.*?)_/g, '$1')
+      .replace(/^#{1,6}\s*/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/^\s*([-*•]|\d+\.)\s+/gm, '')
+      .replace(/`+/g, '')
+      .replace(/[*_|]/g, '')
+      // Emoji & symbols.
       .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
       .replace(/[☀-➿]/g, '') // misc symbols & dingbats (✅ ✨ ☀)

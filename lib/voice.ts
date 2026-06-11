@@ -46,19 +46,28 @@ export async function transcribeAudio(uri: string): Promise<string> {
 export function stripForSpeech(text: string): string {
   return (
     text
-      // Main emoji planes (😀 🌟 💧 🍎 …) — needs the `u` flag.
+      // ── Markdown → plain speech ──────────────────────────────────────────
+      // Bold/italic markers (**x**, *x*, __x__, _x_) → keep the inner words.
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/_(.*?)_/g, '$1')
+      // Headings (#, ##) and blockquotes (>).
+      .replace(/^#{1,6}\s*/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      // Bullet / list markers at line start (-, *, •, 1.).
+      .replace(/^\s*([-*•]|\d+\.)\s+/gm, '')
+      // Inline code / backticks.
+      .replace(/`+/g, '')
+      // Any leftover stray asterisks/underscores/pipes.
+      .replace(/[*_|]/g, '')
+      // ── Emoji & symbols ──────────────────────────────────────────────────
       .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
-      // Regional indicator symbols / flags.
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
-      // Misc symbols & dingbats (✨ ✅ ☀ ☔ …) and supplemental arrows.
       .replace(/[☀-➿]/g, '')
-      // Arrows.
       .replace(/[←-⇿]/g, '')
-      // Misc technical (⏰ ⌛ …).
       .replace(/[⌀-⏿]/g, '')
-      // Stars, extra arrows (⭐ U+2B50 …).
       .replace(/[⬀-⯿]/g, '')
-      // Variation selectors, zero-width joiner, keycap combiner.
       .replace(/[︀-️‍⃣]/g, '')
       // Tidy whitespace left behind.
       .replace(/\s{2,}/g, ' ')
@@ -66,16 +75,43 @@ export function stripForSpeech(text: string): string {
   );
 }
 
-export async function speakText(text: string, audioBase64?: string): Promise<void> {
+let activePlayer: ReturnType<typeof createAudioPlayer> | null = null;
+
+export async function speakText(
+  text: string,
+  audioBase64?: string,
+  opts?: { onDone?: () => void },
+): Promise<void> {
   if (audioBase64) {
     const uri = FileSystem.cacheDirectory + 'aurora_tts.mp3';
     await FileSystem.writeAsStringAsync(uri, audioBase64, {
       encoding: FileSystem.EncodingType.Base64,
     });
     const player = createAudioPlayer({ uri });
+    activePlayer = player;
     player.play();
+    if (opts?.onDone) {
+      player.addListener('playbackStatusUpdate', (s: { didJustFinish?: boolean }) => {
+        if (s?.didJustFinish) opts.onDone?.();
+      });
+    }
   } else {
     const spoken = stripForSpeech(text);
-    if (spoken) Speech.speak(spoken, { language: 'en-US', rate: 0.95 });
+    if (spoken) {
+      Speech.speak(spoken, { language: 'en-US', rate: 0.95, onDone: opts?.onDone });
+    } else {
+      opts?.onDone?.();
+    }
   }
+}
+
+/** Immediately stop any in-progress speech (device TTS + ElevenLabs audio). */
+export function stopSpeaking(): void {
+  Speech.stop();
+  try {
+    activePlayer?.pause();
+  } catch {
+    // ignore
+  }
+  activePlayer = null;
 }

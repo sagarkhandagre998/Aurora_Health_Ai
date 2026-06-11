@@ -5,12 +5,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
 import { useTheme } from '@/hooks/useTheme';
+import { FloatingCompanion } from '@/components/companion/FloatingCompanion';
 
 export default function TabLayout() {
   const theme = useTheme();
 
   return (
-    <Tabs
+    <View style={{ flex: 1 }}>
+      <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
         tabBarInactiveTintColor: theme.tabIconDefault,
@@ -123,7 +125,11 @@ export default function TabLayout() {
           ),
         }}
       />
-    </Tabs>
+      </Tabs>
+
+      {/* Global proactive Aurora presence — floats above all tabs. */}
+      <FloatingCompanion />
+    </View>
   );
 }
 

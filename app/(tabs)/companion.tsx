@@ -40,7 +40,7 @@ import {
 } from 'expo-audio';
 
 import { sendToCompanion, CompanionMessage } from '@/lib/ai';
-import { transcribeAudio, speakText } from '@/lib/voice';
+import { transcribeAudio, speakText, stopSpeaking } from '@/lib/voice';
 
 type OrbStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -376,13 +376,17 @@ export default function CompanionScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [streamSpeaking, setStreamSpeaking] = useState(false);
+  const [greetingSpeaking, setGreetingSpeaking] = useState(false);
   const listRef = useRef<FlatList>(null);
   const historyRef = useRef<CompanionMessage[]>([]);
+  const greetedSpokenRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordStartRef = useRef(0);
 
   const firstName = profile?.name?.trim().split(' ')[0] || 'there';
+  const firstNameRef = useRef(firstName);
+  firstNameRef.current = firstName;
 
   // Greeting — set once, and only refresh the name while still on the greeting
   // (never wipe an in-progress conversation when the profile loads).
@@ -395,6 +399,21 @@ export default function CompanionScreen() {
     });
     historyRef.current = [{ role: 'assistant', content }];
   }, [firstName]);
+
+  // Speak a short greeting once when the module opens. Slight delay lets the
+  // profile name settle so it greets you by name.
+  useEffect(() => {
+    if (greetedSpokenRef.current) return;
+    greetedSpokenRef.current = true;
+    const timer = setTimeout(() => {
+      const spoken = `Hi ${firstNameRef.current}! I'm Aurora, your health companion. How can I help today?`;
+      setGreetingSpeaking(true);
+      speakText(spoken, undefined, { onDone: () => setGreetingSpeaking(false) }).catch(() =>
+        setGreetingSpeaking(false),
+      );
+    }, 700);
+    return () => clearTimeout(timer);
+  }, []);
 
   const scrollToBottom = useCallback((animated = true) => {
     setTimeout(() => listRef.current?.scrollToEnd({ animated }), 60);
@@ -418,6 +437,9 @@ export default function CompanionScreen() {
     async (text: string, speak = false) => {
       const trimmed = text.trim();
       if (!trimmed || status !== 'idle') return;
+      // Cut the opening greeting if it's still playing.
+      stopSpeaking();
+      setGreetingSpeaking(false);
       addMessage({ id: `u-${Date.now()}`, role: 'user', content: trimmed });
       setStatus('thinking');
       try {
@@ -484,6 +506,8 @@ export default function CompanionScreen() {
   // ── Recording: tap to start, tap to stop (Gemini-style) ──────────────────
   const startRecording = useCallback(async () => {
     if (status !== 'idle') return;
+    stopSpeaking();
+    setGreetingSpeaking(false);
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -552,8 +576,12 @@ export default function CompanionScreen() {
     }
   }, [audioRecorder]);
 
-  const orbStatus: OrbStatus = streamingId && streamSpeaking ? 'speaking' : status;
+  const orbStatus: OrbStatus =
+    (streamingId && streamSpeaking) || greetingSpeaking ? 'speaking' : status;
   const isEmpty = messages.length <= 1;
+
+  // Stop any speech if the user leaves the screen.
+  useEffect(() => () => stopSpeaking(), []);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
