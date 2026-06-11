@@ -351,10 +351,18 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    // Supports both freemodel.dev (FREEMODEL_API_KEY) and direct Anthropic (ANTHROPIC_API_KEY)
+    // Accept the key under either secret name.
     const anthropicKey = Deno.env.get('FREEMODEL_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY');
 
-    if (!anthropicKey) return json({ error: 'FREEMODEL_API_KEY not configured' }, 503);
+    if (!anthropicKey) return json({ error: 'AI key not configured (set ANTHROPIC_API_KEY).' }, 503);
+
+    // Endpoint selection (decoupled from the secret NAME):
+    //   - Default to the freemodel.dev Anthropic-compatible gateway, since the
+    //     key in use is a freemodel credit key even though it's stored under
+    //     the ANTHROPIC_API_KEY name.
+    //   - Override with AI_BASE_URL secret to point at api.anthropic.com (or
+    //     any compatible gateway) without a code change.
+    const claudeBaseUrl = Deno.env.get('AI_BASE_URL') ?? 'https://cc.freemodel.dev';
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace('Bearer ', '');
@@ -441,12 +449,6 @@ serve(async (req: Request) => {
     let replyText = '';
 
     for (let turn = 0; turn < 5; turn++) {
-      // Use freemodel.dev Anthropic-compatible endpoint when FREEMODEL_API_KEY is set,
-      // otherwise fall back to the official Anthropic endpoint.
-      const claudeBaseUrl = Deno.env.get('FREEMODEL_API_KEY')
-        ? 'https://cc.freemodel.dev'
-        : 'https://api.anthropic.com';
-
       const claudeRes = await fetch(`${claudeBaseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
