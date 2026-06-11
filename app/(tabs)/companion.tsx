@@ -222,8 +222,14 @@ export default function CompanionScreen() {
         content: res.replyText,
         actions: res.actions.length > 0 ? res.actions : undefined,
       });
-    } catch {
-      showToast('Aurora is unavailable right now', 'error');
+    } catch (err) {
+      console.error('[Aurora] sendToCompanion (text) failed:', err);
+      addMessage({
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: `⚠️ ${err instanceof Error ? err.message : 'Aurora is unavailable right now'}`,
+      });
+      showToast(err instanceof Error ? err.message : 'Aurora is unavailable right now', 'error');
     } finally {
       setStatus('idle');
     }
@@ -259,8 +265,9 @@ export default function CompanionScreen() {
       });
       setStatus('speaking');
       await speakText(res.replyText, res.audioBase64);
-    } catch {
-      showToast('Voice turn failed. Try text mode.', 'error');
+    } catch (err) {
+      console.error('[Aurora] voice turn failed:', err);
+      showToast(err instanceof Error ? err.message : 'Voice turn failed. Try text mode.', 'error');
     } finally {
       setStatus('idle');
     }

@@ -474,24 +474,47 @@ serve(async (req: Request) => {
       const claudeData = (await claudeRes.json()) as any;
       const { stop_reason, content } = claudeData;
 
-      // Append assistant turn to the running conversation.
-      messages.push({ role: 'assistant', content });
+      // Diagnostic: log the raw shape so we can see what the gateway returns.
+      console.log(
+        '[ai-companion] turn',
+        turn,
+        'stop_reason=',
+        stop_reason,
+        'content=',
+        JSON.stringify(content)?.slice(0, 800),
+      );
 
-      // ── End turn: extract reply text and exit loop ─────────────────────
-      if (stop_reason === 'end_turn') {
-        // deno-lint-ignore no-explicit-any
-        replyText = (content as any[])
-          // deno-lint-ignore no-explicit-any
-          .filter((b: any) => b.type === 'text')
-          // deno-lint-ignore no-explicit-any
-          .map((b: any) => b.text as string)
-          .join(' ')
-          .trim();
-        break;
+      // Some gateways return an error object with HTTP 200 instead of a 4xx.
+      if (claudeData?.type === 'error' || claudeData?.error) {
+        throw new Error(`Claude gateway error: ${JSON.stringify(claudeData.error ?? claudeData)}`);
       }
 
+      // Append assistant turn to the running conversation.
+      if (content) messages.push({ role: 'assistant', content });
+
+      // Helper: pull all text blocks out of a content array.
+      // deno-lint-ignore no-explicit-any
+      const extractText = (c: any): string =>
+        Array.isArray(c)
+          ? c
+              // deno-lint-ignore no-explicit-any
+              .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+              // deno-lint-ignore no-explicit-any
+              .map((b: any) => b.text as string)
+              .join(' ')
+              .trim()
+          : typeof c === 'string'
+            ? c.trim()
+            : '';
+
       // ── Tool use: execute each tool, collect results, continue ─────────
-      if (stop_reason === 'tool_use') {
+      const hasToolUse =
+        stop_reason === 'tool_use' ||
+        (Array.isArray(content) &&
+          // deno-lint-ignore no-explicit-any
+          content.some((b: any) => b?.type === 'tool_use'));
+
+      if (hasToolUse) {
         // deno-lint-ignore no-explicit-any
         const toolBlocks = (content as any[]).filter((b: any) => b.type === 'tool_use');
         const toolResults = await Promise.all(
@@ -516,7 +539,9 @@ serve(async (req: Request) => {
         continue;
       }
 
-      // Any other stop reason (max_tokens, stop_sequence) — exit.
+      // No tool use → this is the assistant's final answer. Extract whatever
+      // text it returned (regardless of the exact stop_reason value) and exit.
+      replyText = extractText(content);
       break;
     }
 

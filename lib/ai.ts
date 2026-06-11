@@ -41,16 +41,27 @@ export async function sendToCompanion(
   });
 
   if (error) {
-    // Surface the function's JSON error body when available (e.g. 503 missing key).
-    const ctx = (error as { context?: { body?: unknown } }).context;
+    // supabase-js FunctionsHttpError stores the raw Response in error.context.
+    // Read its JSON body to surface the function's real error message
+    // (e.g. "Claude API 400: ...", "AI key not configured").
     let detail = error.message;
+    const ctx = (error as { context?: unknown }).context;
     try {
-      if (ctx?.body) {
-        const parsed = typeof ctx.body === 'string' ? JSON.parse(ctx.body) : ctx.body;
-        if (parsed?.error) detail = parsed.error;
+      if (ctx instanceof Response) {
+        const body = await ctx
+          .clone()
+          .json()
+          .catch(async () => ({ error: await ctx.clone().text() }));
+        if (body?.error) detail = body.error;
+        // eslint-disable-next-line no-console
+        console.error('[ai] edge function error body:', body);
+      } else if (ctx && typeof ctx === 'object') {
+        // eslint-disable-next-line no-console
+        console.error('[ai] edge function error context:', JSON.stringify(ctx));
       }
-    } catch {
-      // ignore parse errors, keep original message
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[ai] could not read error body:', e);
     }
     throw new Error(detail);
   }
