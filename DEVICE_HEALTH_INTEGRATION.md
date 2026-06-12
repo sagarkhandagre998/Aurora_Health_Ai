@@ -111,7 +111,7 @@ sleep/water appear.
 
 ### Step 1 — Install the native package
 ```bash
-npx expo install @kingstinct/react-native-health
+npx expo install react-native-health
 ```
 
 ### Step 2 — Rebuild the native app
@@ -160,7 +160,7 @@ Same as Android Steps 4–5; the screen shows "Apple Health."
 | File | Responsibility |
 |---|---|
 | `lib/healthProvider.ts` | Platform switch + shared types (`DailyValue`, `HealthSleepSample`, `HealthWaterSample`, `HealthProvider`). Exposes `getHealthProvider()`, `isHealthAvailable()`, `getHealthProviderName()`. |
-| `lib/healthkit.ts` | Apple HealthKit wrapper. Lazily requires `@kingstinct/react-native-health`; no-ops off-iOS. |
+| `lib/healthkit.ts` | Apple HealthKit wrapper. Lazily requires `react-native-health`; no-ops off-iOS. |
 | `lib/healthConnect.ts` | Health Connect wrapper. Lazily requires `react-native-health-connect`; no-ops off-Android. Maps HC records (Steps/ActiveCaloriesBurned/SleepSession/Hydration) to the shared shapes. |
 | `lib/healthSync.ts` | Provider-agnostic read/write orchestration, sleep aggregation, water dedupe, Redux + Supabase updates. |
 | `store/slices/activitySlice.ts` | Persisted state: `hkConnected`, `enabledMetrics`, today's steps/energy, 7-day series, `lastSyncedAt`. |

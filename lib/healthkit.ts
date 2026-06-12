@@ -4,7 +4,7 @@ import type { DailyValue, HealthSleepSample, HealthWaterSample } from './healthP
 /**
  * Guarded Apple HealthKit wrapper.
  *
- * The native module (`@kingstinct/react-native-health`) is lazily required so
+ * The native module (`react-native-health`) is lazily required so
  * that Android, web, Expo Go, and builds without the native module pod simply
  * get a disabled, no-op surface instead of a crash at import time. Every public
  * function is safe to call on any platform.

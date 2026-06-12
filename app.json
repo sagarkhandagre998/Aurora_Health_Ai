@@ -53,7 +53,7 @@
       "expo-notifications",
       "expo-apple-authentication",
       [
-        "@kingstinct/react-native-health",
+        "react-native-health",
         {
           "isClinicalDataEnabled": false,
           "healthSharePermission": "Aurora reads your steps, active energy, sleep, and water from Apple Health to give you a complete picture of your day.",
@@ -71,6 +71,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b0e91ca6-466a-4f15-8e9f-82ba7cda40d3"
+      }
     }
   }
 }
