@@ -20,14 +20,20 @@ import Animated, {
   Easing,
   useAnimatedProps,
   useSharedValue,
+  withDelay,
   withRepeat,
+  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, ClipPath, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
-// Wrap SVG Path so Reanimated can drive its `d` prop on the UI thread.
+// Wrap SVG primitives so Reanimated can drive their props on the UI thread.
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+// Number of droplets that rain into the bottle on each pour.
+const DROPLET_COUNT = 5;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +44,59 @@ export interface WaterBottleProps {
   height?: number;
   /** Accent / water color. Defaults to Aurora hydration blue. */
   color?: string;
+  /**
+   * Increment this counter to trigger a one-shot "pour" animation:
+   * droplets rain in from the neck, the surface splashes, and the fill
+   * overshoots then settles. Typically `logs.length` or a dedicated ref.
+   */
+  pourTrigger?: number;
+}
+
+// A single falling droplet animated on the UI thread.
+function Droplet({
+  index,
+  trigger,
+  width,
+  height,
+  color,
+}: {
+  index: number;
+  trigger: number;
+  width: number;
+  height: number;
+  color: string;
+}) {
+  const progress = useSharedValue(0); // 0 (top of neck) → 1 (hits surface)
+  const neckCenter = width / 2;
+  // Spread droplets a little across the neck width.
+  const spread = ((index - (DROPLET_COUNT - 1) / 2) / DROPLET_COUNT) * (width * 0.22);
+  const startY = height * 0.02;
+  const endY = height * 0.4;
+  const r = 3.2 + (index % 2) * 1.1;
+
+  useEffect(() => {
+    if (trigger === 0) return;
+    progress.value = 0;
+    progress.value = withDelay(
+      index * 55,
+      withTiming(1, { duration: 360, easing: Easing.in(Easing.quad) }),
+    );
+  }, [trigger, index, progress]);
+
+  const dropProps = useAnimatedProps(() => {
+    'worklet';
+    const p = progress.value;
+    // Fade in at the start, vanish on "impact" near the bottom.
+    const opacity = p <= 0 || p >= 1 ? 0 : p < 0.15 ? p / 0.15 : 1 - (p - 0.85) / 0.15;
+    return {
+      cx: neckCenter + spread,
+      cy: startY + (endY - startY) * p,
+      opacity: Math.max(0, Math.min(1, opacity)) * 0.9,
+      r,
+    };
+  });
+
+  return <AnimatedCircle animatedProps={dropProps} fill={color} />;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -47,6 +106,7 @@ export function WaterBottle({
   width = 160,
   height = 280,
   color = '#34C5FF',
+  pourTrigger = 0,
 }: WaterBottleProps) {
   // Stable, collision-safe SVG element IDs per instance.
   const uid = React.useId().replace(/:/g, '');
@@ -57,6 +117,8 @@ export function WaterBottle({
   const clampedFill = Math.max(0, Math.min(1, fillPercent));
   const wavePhase = useSharedValue(0);
   const waterY = useSharedValue(height * (1 - clampedFill));
+  // Extra wave amplitude injected on a pour → big "splash", settling to calm.
+  const splash = useSharedValue(0);
 
   // Perpetual wave phase: 0 → 2π, repeating forever.
   useEffect(() => {
@@ -72,6 +134,23 @@ export function WaterBottle({
     const fill = Math.max(0, Math.min(1, fillPercent));
     waterY.value = withSpring(height * (1 - fill), { damping: 14, stiffness: 75 });
   }, [fillPercent, height, waterY]);
+
+  // One-shot "pour" reaction: the surface splashes up then settles, and the
+  // water level dips slightly (as droplets land) before springing back.
+  useEffect(() => {
+    if (pourTrigger === 0) return;
+    splash.value = withSequence(
+      withTiming(1, { duration: 140, easing: Easing.out(Easing.quad) }),
+      withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }),
+    );
+    const fill = Math.max(0, Math.min(1, fillPercent));
+    const target = height * (1 - fill);
+    waterY.value = withSequence(
+      // delay until the droplets reach the surface
+      withDelay(180, withTiming(target + height * 0.04, { duration: 120 })),
+      withSpring(target, { damping: 9, stiffness: 120 }),
+    );
+  }, [pourTrigger, fillPercent, height, splash, waterY]);
 
   // ── Static geometry (memoised per width/height) ──────────────────────────
 
@@ -128,7 +207,10 @@ export function WaterBottle({
    */
   const waveAnimatedProps = useAnimatedProps(() => {
     'worklet';
-    const AMPLITUDE = height * 0.022; // wave height in px
+    // Splash boosts the amplitude and adds a faster secondary ripple so the
+    // surface visibly churns right after a pour, then eases back to calm.
+    const s = splash.value;
+    const AMPLITUDE = height * (0.022 + 0.07 * s); // wave height in px
     const FREQ = 2.2; // wave cycles across the width
     const wY = waterY.value;
     const phase = wavePhase.value;
@@ -138,7 +220,8 @@ export function WaterBottle({
 
     // Sample the sine curve every 3 px for smoothness vs. perf balance.
     for (let x = 1; x <= width; x += 3) {
-      const y = wY + Math.sin((x / width) * Math.PI * 2 * FREQ + phase) * AMPLITUDE;
+      const ripple = Math.sin((x / width) * Math.PI * 2 * (FREQ + 3 * s) + phase * 1.7) * AMPLITUDE * s * 0.6;
+      const y = wY + Math.sin((x / width) * Math.PI * 2 * FREQ + phase) * AMPLITUDE + ripple;
       d += ` L ${x} ${y}`;
     }
 
@@ -183,6 +266,19 @@ export function WaterBottle({
           fill={`url(#${gradId})`}
           clipPath={`url(#${clipId})`}
         />
+
+        {/* Falling droplets on each pour (fall within the bottle silhouette) */}
+        {pourTrigger > 0 &&
+          Array.from({ length: DROPLET_COUNT }).map((_, i) => (
+            <Droplet
+              key={i}
+              index={i}
+              trigger={pourTrigger}
+              width={width}
+              height={height}
+              color={color}
+            />
+          ))}
 
         {/* Bottle outline drawn on top for glass clarity */}
         <Path d={bottleD} fill="none" stroke={color} strokeWidth={2.5} opacity={0.55} />

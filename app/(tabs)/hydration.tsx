@@ -23,9 +23,11 @@ import { Confetti } from 'react-native-fast-confetti';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { pushWaterToHealthKit } from '@/lib/healthSync';
+import { playWaterFill, playWaterDrop } from '@/lib/waterSound';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { WaterBottle } from '@/components/bottle/WaterBottle';
+import { WaterSplashOverlay, SplashEvent } from '@/components/bottle/WaterSplashOverlay';
 import { DayBars, DayPills } from '@/components/charts/DayBars';
 import { formatDate } from '@/utils/date';
 import { RootState, AppDispatch } from '@/store';
@@ -74,6 +76,11 @@ export default function HydrationScreen() {
   const customSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['32%'], []);
   const [customAmt, setCustomAmt] = useState('');
+
+  // Bumped on every successful add → drives the WaterBottle pour animation.
+  const [pourTrigger, setPourTrigger] = useState(0);
+  // Active delete "spill" effect (droplets + floating "−X ml removed" label).
+  const [splash, setSplash] = useState<SplashEvent | null>(null);
 
   const fillPercent = dailyGoalMl > 0 ? Math.min(1, todayTotalMl / dailyGoalMl) : 0;
   const prevReached = useRef(false);
@@ -143,6 +150,9 @@ export default function HydrationScreen() {
       // Optimistic
       dispatch(addLog(newLog));
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Creative feedback: droplets rain into the bottle + a water "pour" sound.
+      setPourTrigger((n) => n + 1);
+      playWaterFill();
       showToast(`+${amountMl} ml logged 💧`, 'success');
       try {
         const { data, error } = await supabase
@@ -168,17 +178,26 @@ export default function HydrationScreen() {
   );
 
   const handleDelete = useCallback(
-    async (id: string) => {
+    async (id: string, amountMl: number, origin: { x: number; y: number }) => {
+      // Creative feedback: water spills across the screen + a floating
+      // "−X ml removed" label drifts up, with a descending water "drop" sound.
+      setSplash({
+        id: `${id}-${pourTrigger}`,
+        amountMl,
+        x: origin.x,
+        y: origin.y,
+        color: theme.hydration,
+      });
+      playWaterDrop();
       dispatch(removeLog(id));
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       try {
         await supabase.from('water_logs').delete().eq('id', id);
-        showToast('Log removed', 'success');
       } catch {
         showToast('Could not remove log', 'error');
       }
     },
-    [dispatch, showToast],
+    [dispatch, showToast, theme.hydration, pourTrigger],
   );
 
   const handleCustomAdd = useCallback(() => {
@@ -245,7 +264,13 @@ export default function HydrationScreen() {
 
         {/* Bottle + Progress */}
         <Animated.View entering={FadeInDown.delay(60).springify()} style={styles.bottleSection}>
-          <WaterBottle fillPercent={fillPercent} width={130} height={230} />
+          <WaterBottle
+            fillPercent={fillPercent}
+            width={130}
+            height={230}
+            color={theme.hydration}
+            pourTrigger={pourTrigger}
+          />
           <View style={styles.statsCol}>
             <Text style={[styles.mlValue, { color: theme.text }]}>
               {todayTotalMl.toLocaleString()}
@@ -349,7 +374,12 @@ export default function HydrationScreen() {
                   </Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => handleDelete(log.id)}
+                  onPress={(e) =>
+                    handleDelete(log.id, log.amountMl, {
+                      x: e.nativeEvent.pageX,
+                      y: e.nativeEvent.pageY,
+                    })
+                  }
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <Ionicons name="trash-outline" size={18} color={theme.error} />
@@ -435,6 +465,9 @@ export default function HydrationScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Delete "spill" effect: droplets fly out + floating "−X ml removed" */}
+      <WaterSplashOverlay splash={splash} onDone={() => setSplash(null)} />
     </SafeAreaView>
   );
 }

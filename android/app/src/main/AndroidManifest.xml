@@ -15,12 +15,16 @@
       <category android:name="android.intent.category.BROWSABLE"/>
       <data android:scheme="https"/>
     </intent>
+    <!-- Required so the app can see/launch the Health Connect provider on
+         Android 14+ (package visibility). Without this the permission intent
+         resolves to nothing and requestPermission returns an empty result. -->
+    <package android:name="com.google.android.apps.healthdata"/>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
+    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
@@ -34,6 +38,15 @@
       </intent-filter>
       <intent-filter>
         <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+      </intent-filter>
+      <!-- Android 14+ (incl. 16) Health Connect rationale: the platform
+           controller requires this exact action+category, otherwise it logs
+           "App should support rationale intent, finishing!" and returns no
+           permissions. The react-native-health-connect plugin only adds the
+           legacy androidx.health action above, so we declare this explicitly. -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+        <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
       </intent-filter>
     </activity>
   </application>

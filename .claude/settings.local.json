@@ -6,7 +6,15 @@
       "Bash(git status:*)",
       "Bash(git check-ignore:*)",
       "Bash(curl:*)",
-      "Bash(rm -rf android)"
+      "Bash(rm -rf android)",
+      "Bash(pkill -9 -f \"expo start\")",
+      "Bash(pkill -9 -f \"metro\")",
+      "Bash(awk '{print $2, $11, $12, $13}')",
+      "Bash(adb devices *)",
+      "Bash(adb logcat *)",
+      "Bash(npx tsc *)",
+      "Bash(adb shell *)",
+      "Bash(npx eslint *)"
     ],
     "deny": []
   }

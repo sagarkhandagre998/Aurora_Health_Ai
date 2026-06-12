@@ -29,6 +29,7 @@ import { setMeals } from '@/store/slices/nutritionSlice';
 import { setStreaks } from '@/store/slices/streakSlice';
 import { Insight } from '@/types';
 import { getHealthProviderName } from '@/lib/healthProvider';
+import { maybeGenerateDailyInsight } from '@/lib/insights';
 
 const HEALTH_PROVIDER_NAME = getHealthProviderName();
 
@@ -185,6 +186,21 @@ export default function DashboardScreen() {
     fetchAll();
   }, [fetchAll]);
 
+  // Generate a fresh daily insight on app open. The edge function guards on
+  // staleness (skips if the newest insight is <~20h old), so this is cheap to
+  // run every time the dashboard mounts; opening on a new day yields a new one.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const fresh = await maybeGenerateDailyInsight();
+      if (fresh && !cancelled) setInsight(fresh);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchAll();
@@ -242,6 +258,50 @@ export default function DashboardScreen() {
             ) : null}
           </LinearGradient>
         </Animated.View>
+
+        {/* 1b · Activity Card (Health Connect) — directly below Daily Insight when connected */}
+        {hkConnected && (
+          <Animated.View entering={FadeInDown.delay(75).springify()}>
+            <TouchableOpacity
+              style={[styles.card, { backgroundColor: theme.card }]}
+              onPress={() => router.push('/health-connect')}
+              activeOpacity={0.82}
+            >
+              <View style={styles.labelRow}>
+                <Ionicons name="walk" size={15} color={theme.habits} />
+                <Text style={[styles.chipLabel, { color: theme.habits, marginLeft: 5 }]}>
+                  Activity
+                </Text>
+                <View style={styles.hkBadge}>
+                  <Ionicons
+                    name={Platform.OS === 'ios' ? 'heart' : 'pulse'}
+                    size={9}
+                    color={Platform.OS === 'ios' ? '#FF4F6D' : '#2E7D5B'}
+                  />
+                  <Text style={styles.hkBadgeText}>{HEALTH_PROVIDER_NAME}</Text>
+                </View>
+              </View>
+              <View style={styles.activityRow}>
+                <View style={styles.activityItem}>
+                  <Text style={[styles.bigValue, { color: theme.text }]}>
+                    {todaySteps.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.subText, { color: theme.textSecondary }]}>steps</Text>
+                </View>
+                <View style={[styles.activityDivider, { backgroundColor: theme.border }]} />
+                <View style={styles.activityItem}>
+                  <Text style={[styles.bigValue, { color: theme.text }]}>
+                    {todayActiveEnergyKcal.toLocaleString()}
+                    <Text style={[styles.unit, { color: theme.textSecondary }]}> kcal</Text>
+                  </Text>
+                  <Text style={[styles.subText, { color: theme.textSecondary }]}>
+                    active energy
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         {/* 2 · Progress & Reports entry */}
         <Animated.View entering={FadeInDown.delay(90).springify()}>
@@ -346,50 +406,6 @@ export default function DashboardScreen() {
             )}
           </TouchableOpacity>
         </Animated.View>
-
-        {/* 3b · Activity Card (Apple Health) */}
-        {hkConnected && (
-          <Animated.View entering={FadeInDown.delay(210).springify()}>
-            <TouchableOpacity
-              style={[styles.card, { backgroundColor: theme.card }]}
-              onPress={() => router.push('/health-connect')}
-              activeOpacity={0.82}
-            >
-              <View style={styles.labelRow}>
-                <Ionicons name="walk" size={15} color={theme.habits} />
-                <Text style={[styles.chipLabel, { color: theme.habits, marginLeft: 5 }]}>
-                  Activity
-                </Text>
-                <View style={styles.hkBadge}>
-                  <Ionicons
-                    name={Platform.OS === 'ios' ? 'heart' : 'pulse'}
-                    size={9}
-                    color={Platform.OS === 'ios' ? '#FF4F6D' : '#2E7D5B'}
-                  />
-                  <Text style={styles.hkBadgeText}>{HEALTH_PROVIDER_NAME}</Text>
-                </View>
-              </View>
-              <View style={styles.activityRow}>
-                <View style={styles.activityItem}>
-                  <Text style={[styles.bigValue, { color: theme.text }]}>
-                    {todaySteps.toLocaleString()}
-                  </Text>
-                  <Text style={[styles.subText, { color: theme.textSecondary }]}>steps</Text>
-                </View>
-                <View style={[styles.activityDivider, { backgroundColor: theme.border }]} />
-                <View style={styles.activityItem}>
-                  <Text style={[styles.bigValue, { color: theme.text }]}>
-                    {todayActiveEnergyKcal.toLocaleString()}
-                    <Text style={[styles.unit, { color: theme.textSecondary }]}> kcal</Text>
-                  </Text>
-                  <Text style={[styles.subText, { color: theme.textSecondary }]}>
-                    active energy
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </Animated.View>
-        )}
 
         {/* 4 · Habits Card */}
         <Animated.View entering={FadeInDown.delay(240).springify()}>

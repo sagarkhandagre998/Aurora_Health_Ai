@@ -1,0 +1,85 @@
+diff --git a/node_modules/react-native-health-connect/android/build.gradle b/node_modules/react-native-health-connect/android/build.gradle
+index 5b5b4dc..e6eabb8 100644
+--- a/node_modules/react-native-health-connect/android/build.gradle
++++ b/node_modules/react-native-health-connect/android/build.gradle
+@@ -92,7 +92,7 @@ dependencies {
+   implementation "com.facebook.react:react-native"
+   implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+-  implementation "androidx.health.connect:connect-client:1.1.0-alpha11"
++  implementation "androidx.health.connect:connect-client:1.1.0"
+ }
+ 
+ if (isNewArchitectureEnabled()) {
+diff --git a/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/utils/HealthConnectUtils.kt b/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/utils/HealthConnectUtils.kt
+index 9a02150..0194ff3 100644
+--- a/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/utils/HealthConnectUtils.kt
++++ b/node_modules/react-native-health-connect/android/src/main/java/dev/matinzd/healthconnect/utils/HealthConnectUtils.kt
+@@ -178,25 +178,49 @@ fun ReadableMap.getTimeRangeFilterLocal(key: String? = null): TimeRangeFilter {
+ }
+ 
+ fun convertMetadataFromJSMap(meta: ReadableMap?): Metadata {
++  // connect-client 1.1.0 made the Metadata(...) constructor `internal`. The
++  // supported API is the factory methods, where the recording method is encoded
++  // by *which* factory is called. id / dataOrigin / lastModifiedTime are
++  // server-assigned on insert, so they are intentionally dropped here.
+   if (meta == null) {
+-    return Metadata()
+-  }
+-
+-  return Metadata(
+-    id = meta.getSafeString("id", ""),
+-    clientRecordId = meta.getString("clientRecordId"),
+-    clientRecordVersion = meta.getSafeDouble("clientRecordVersion", 0.0).toLong(),
+-    dataOrigin = DataOrigin(meta.getSafeString("dataOrigin", "")),
+-    lastModifiedTime = Instant.parse(meta.getSafeString("lastModifiedTime", Instant.now().toString())),
+-    device = meta.getMap("device")?.let {
+-      Device(
+-        type = it.getSafeInt("type", Device.TYPE_UNKNOWN),
+-        manufacturer = it.getString("manufacturer"),
+-        model = it.getString("model"),
+-      )
+-    },
+-    recordingMethod = meta.getSafeInt("recordingMethod", Metadata.RECORDING_METHOD_UNKNOWN)
+-  )
++    return Metadata.unknownRecordingMethod()
++  }
++
++  val clientRecordId = meta.getString("clientRecordId")
++  val clientRecordVersion = meta.getSafeDouble("clientRecordVersion", 0.0).toLong()
++  val device = meta.getMap("device")?.let {
++    Device(
++      type = it.getSafeInt("type", Device.TYPE_UNKNOWN),
++      manufacturer = it.getString("manufacturer"),
++      model = it.getString("model"),
++    )
++  }
++
++  return when (meta.getSafeInt("recordingMethod", Metadata.RECORDING_METHOD_UNKNOWN)) {
++    // actively/auto recorded require a Device; fall back to an unknown device.
++    Metadata.RECORDING_METHOD_ACTIVELY_RECORDED -> {
++      val d = device ?: Device(type = Device.TYPE_UNKNOWN)
++      if (clientRecordId != null) Metadata.activelyRecorded(d, clientRecordId, clientRecordVersion)
++      else Metadata.activelyRecorded(d)
++    }
++    Metadata.RECORDING_METHOD_AUTOMATICALLY_RECORDED -> {
++      val d = device ?: Device(type = Device.TYPE_UNKNOWN)
++      if (clientRecordId != null) Metadata.autoRecorded(d, clientRecordId, clientRecordVersion)
++      else Metadata.autoRecorded(d)
++    }
++    Metadata.RECORDING_METHOD_MANUAL_ENTRY -> when {
++      clientRecordId != null && device != null -> Metadata.manualEntry(clientRecordId, clientRecordVersion, device)
++      clientRecordId != null -> Metadata.manualEntry(clientRecordId, clientRecordVersion)
++      device != null -> Metadata.manualEntry(device)
++      else -> Metadata.manualEntry()
++    }
++    else -> when {
++      clientRecordId != null && device != null -> Metadata.unknownRecordingMethod(clientRecordId, clientRecordVersion, device)
++      clientRecordId != null -> Metadata.unknownRecordingMethod(clientRecordId, clientRecordVersion)
++      device != null -> Metadata.unknownRecordingMethod(device)
++      else -> Metadata.unknownRecordingMethod()
++    }
++  }
+ }
+ 
+ fun convertMetadataToJSMap(meta: Metadata): WritableNativeMap {

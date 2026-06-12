@@ -11,6 +11,8 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 import expo.modules.ReactActivityDelegateWrapper
 
+import dev.matinzd.healthconnect.permissions.HealthConnectPermissionDelegate
+
 class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     // Set the theme to AppTheme BEFORE onCreate to support
@@ -21,6 +23,14 @@ class MainActivity : ReactActivity() {
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
     super.onCreate(null)
+
+    // Register the Health Connect permission launcher. This MUST run in
+    // onCreate (before the activity is STARTED) — registerForActivityResult
+    // requires it. Without this, react-native-health-connect's
+    // `requestPermission` lateinit launcher is never initialized and the app
+    // hard-crashes (UninitializedPropertyAccessException) when the user taps
+    // "Connect" on the Health Connect screen.
+    HealthConnectPermissionDelegate.setPermissionDelegate(this)
   }
 
   /**

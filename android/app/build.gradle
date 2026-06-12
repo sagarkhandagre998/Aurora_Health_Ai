@@ -180,3 +180,13 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// react-native-health-connect@3.5.3 pins androidx.health.connect:connect-client
+// to 1.1.0-alpha11, whose permission contract silently cancels (returns []) on
+// Android 14+ / 16 instead of routing to the platform Health Connect provider.
+// Force the stable client, which contains the platform-routing fixes.
+configurations.all {
+    resolutionStrategy {
+        force "androidx.health.connect:connect-client:1.1.0"
+    }
+}
