@@ -22,7 +22,14 @@
       },
       "package": "com.healthtracker",
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.READ_SLEEP",
+        "android.permission.health.READ_HYDRATION",
+        "android.permission.health.WRITE_HYDRATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -53,6 +60,7 @@
           "healthUpdatePermission": "Aurora writes the water you log back to Apple Health so your hydration stays in sync."
         }
       ],
+      "react-native-health-connect",
       [
         "@react-native-google-signin/google-signin",
         {

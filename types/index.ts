@@ -22,7 +22,7 @@ export interface Profile {
   notificationPrefs: { hydration: boolean; sleep: boolean; habits: boolean; insights: boolean };
   onboardingComplete: boolean;
 }
-export type LogSource = 'manual' | 'apple_health' | 'ai';
+export type LogSource = 'manual' | 'apple_health' | 'health_connect' | 'ai';
 
 export interface WaterLog {
   id: string;

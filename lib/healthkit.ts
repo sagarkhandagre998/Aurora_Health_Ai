@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import type { DailyValue, HealthSleepSample, HealthWaterSample } from './healthProvider';
 
 /**
  * Guarded Apple HealthKit wrapper.
@@ -11,26 +12,6 @@ import { Platform } from 'react-native';
  * iOS dev/standalone builds that include the config plugin will resolve the
  * real module and talk to HealthKit.
  */
-
-export interface HealthSleepSample {
-  startDate: string;
-  endDate: string;
-  value: string; // 'INBED' | 'ASLEEP' | 'CORE' | 'DEEP' | 'REM' | 'AWAKE' ...
-  sourceName?: string;
-}
-
-export interface HealthWaterSample {
-  id?: string;
-  startDate: string;
-  endDate: string;
-  value: number; // in the requested unit (we request litres)
-  sourceName?: string;
-}
-
-export interface DailyValue {
-  date: string; // "YYYY-MM-DD"
-  value: number;
-}
 
 // ── Lazy native module resolution ──────────────────────────────────────────
 let _hk: any | null = null;
@@ -45,7 +26,7 @@ function getHK(): any | null {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@kingstinct/react-native-health');
+    const mod = require('react-native-health');
     _hk = mod?.default ?? mod ?? null;
   } catch {
     _hk = null;

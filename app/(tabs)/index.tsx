@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
+import {
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  RefreshControl,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,6 +28,9 @@ import { setHabits, setCompletions } from '@/store/slices/habitsSlice';
 import { setMeals } from '@/store/slices/nutritionSlice';
 import { setStreaks } from '@/store/slices/streakSlice';
 import { Insight } from '@/types';
+import { getHealthProviderName } from '@/lib/healthProvider';
+
+const HEALTH_PROVIDER_NAME = getHealthProviderName();
 
 function getGreeting(name: string): string {
   const h = new Date().getHours();
@@ -327,8 +338,12 @@ export default function DashboardScreen() {
                   Activity
                 </Text>
                 <View style={styles.hkBadge}>
-                  <Ionicons name="heart" size={9} color="#FF4F6D" />
-                  <Text style={styles.hkBadgeText}>Apple Health</Text>
+                  <Ionicons
+                    name={Platform.OS === 'ios' ? 'heart' : 'pulse'}
+                    size={9}
+                    color={Platform.OS === 'ios' ? '#FF4F6D' : '#2E7D5B'}
+                  />
+                  <Text style={styles.hkBadgeText}>{HEALTH_PROVIDER_NAME}</Text>
                 </View>
               </View>
               <View style={styles.activityRow}>

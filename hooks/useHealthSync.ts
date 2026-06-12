@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '@/lib/auth';
-import { isHealthKitAvailable } from '@/lib/healthkit';
+import { isHealthAvailable } from '@/lib/healthProvider';
 import { syncFromHealthKit } from '@/lib/healthSync';
 import type { AppDispatch, RootState } from '@/store';
 
@@ -23,7 +23,7 @@ export function useHealthSync(): void {
   const inFlightRef = useRef(false);
 
   const run = useCallback(async () => {
-    if (!user?.id || !hkConnected || !isHealthKitAvailable()) return;
+    if (!user?.id || !hkConnected || !isHealthAvailable()) return;
     if (inFlightRef.current) return;
     if (Date.now() - lastRunRef.current < MIN_SYNC_INTERVAL) return;
     inFlightRef.current = true;

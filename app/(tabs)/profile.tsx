@@ -22,6 +22,7 @@ import { router } from 'expo-router';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { getHealthProviderName } from '@/lib/healthProvider';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { RootState, AppDispatch } from '@/store';
@@ -32,6 +33,8 @@ interface HealthMemory {
   observation: string;
   created_at: string;
 }
+
+const HEALTH_PROVIDER_NAME = getHealthProviderName();
 
 const GOAL_LABELS: Record<string, string> = {
   improve_hydration: '💧 Better Hydration',
@@ -378,9 +381,9 @@ export default function ProfileScreen() {
           <SectionHeader title="Devices & Data" />
           <View style={[styles.section, { backgroundColor: theme.card }]}>
             <Row
-              icon="heart-outline"
-              label="Apple Health"
-              iconColor="#FF4F6D"
+              icon={Platform.OS === 'ios' ? 'heart-outline' : 'pulse-outline'}
+              label={HEALTH_PROVIDER_NAME}
+              iconColor={Platform.OS === 'ios' ? '#FF4F6D' : '#2E7D5B'}
               value={hkConnected ? 'Connected' : 'Not connected'}
               onPress={() => router.push('/health-connect')}
             />

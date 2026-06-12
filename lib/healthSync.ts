@@ -1,21 +1,13 @@
 import { supabase } from './supabase';
-import {
-  isHealthKitAvailable,
-  getStepsSeries,
-  getActiveEnergySeries,
-  getSleepSamples,
-  getWaterSamples,
-  saveWater,
-  type HealthSleepSample,
-} from './healthkit';
+import { getHealthProvider, isHealthAvailable, type HealthSleepSample } from './healthProvider';
 import type { AppDispatch } from '@/store';
 import { setActivitySeries, setLastSyncedAt } from '@/store/slices/activitySlice';
 import { setLogs as setSleepLogs } from '@/store/slices/sleepSlice';
 import { setLogs as setWaterLogs } from '@/store/slices/hydrationSlice';
-import type { ActivityDay, HealthMetric, SleepLog, WaterLog } from '@/types';
+import type { ActivityDay, HealthMetric, LogSource, SleepLog, WaterLog } from '@/types';
 
-/** Name(s) this app reports samples under in HealthKit (to skip re-importing our own writes). */
-const APP_SOURCE_HINTS = ['aurora', 'health tracker', 'healthtracker'];
+/** Source name fragments this app reports under (to skip re-importing our own writes). */
+const APP_SOURCE_HINTS = ['aurora', 'health tracker', 'healthtracker', 'com.healthtracker'];
 
 function isOwnSource(sourceName?: string): boolean {
   if (!sourceName) return false;
@@ -84,15 +76,17 @@ export async function syncFromHealthKit(
   dispatch: AppDispatch,
   enabled: Record<HealthMetric, boolean>,
 ): Promise<SyncResult | null> {
-  if (!isHealthKitAvailable() || !userId) return null;
+  const provider = getHealthProvider();
+  if (!provider || !isHealthAvailable() || !userId) return null;
+  const source: LogSource = provider.key;
 
   const result: SyncResult = { steps: 0, activeEnergyKcal: 0, sleepNights: 0, waterImported: 0 };
 
   // ── Activity (steps + active energy) → Redux only (local source of truth) ──
   if (enabled.steps || enabled.activeEnergy) {
     const [steps, energy] = await Promise.all([
-      enabled.steps ? getStepsSeries(7) : Promise.resolve([]),
-      enabled.activeEnergy ? getActiveEnergySeries(7) : Promise.resolve([]),
+      enabled.steps ? provider.getStepsSeries(7) : Promise.resolve([]),
+      enabled.activeEnergy ? provider.getActiveEnergySeries(7) : Promise.resolve([]),
     ]);
     const dayMap = new Map<string, ActivityDay>();
     for (const s of steps) {
@@ -113,7 +107,7 @@ export async function syncFromHealthKit(
 
   // ── Sleep → sleep_logs (upsert per night) ──
   if (enabled.sleep) {
-    const nights = aggregateSleep(await getSleepSamples(14));
+    const nights = aggregateSleep(await provider.getSleepSamples(14));
     if (nights.length > 0) {
       await supabase.from('sleep_logs').upsert(
         nights.map((n) => ({
@@ -122,7 +116,7 @@ export async function syncFromHealthKit(
           duration_min: n.durationMin,
           sleep_start: n.sleepStart,
           sleep_end: n.sleepEnd,
-          source: 'apple_health',
+          source,
         })),
         { onConflict: 'user_id,date' },
       );
@@ -151,7 +145,7 @@ export async function syncFromHealthKit(
 
   // ── Water → water_logs (import external samples, deduped by hk_uuid) ──
   if (enabled.water) {
-    const samples = await getWaterSamples(7);
+    const samples = await provider.getWaterSamples(7);
     const external = samples.filter((s) => s.id && !isOwnSource(s.sourceName) && s.value > 0);
     if (external.length > 0) {
       const ids = external.map((s) => s.id as string);
@@ -168,7 +162,7 @@ export async function syncFromHealthKit(
             user_id: userId,
             amount_ml: s.value,
             logged_at: s.startDate,
-            source: 'apple_health',
+            source,
             hk_uuid: s.id,
           })),
         );
@@ -200,16 +194,18 @@ export async function syncFromHealthKit(
 }
 
 /**
- * Write a manually-logged water amount through to Apple Health and tag the
- * Supabase row with the returned HealthKit UUID (prevents re-import double counts).
+ * Write a manually-logged water amount through to the platform health store
+ * (Apple Health / Health Connect) and tag the Supabase row with the returned
+ * native UUID (prevents the importer from re-inserting our own write).
  */
 export async function pushWaterToHealthKit(
   rowId: string,
   amountMl: number,
   loggedAt: string,
 ): Promise<void> {
-  if (!isHealthKitAvailable()) return;
-  const uuid = await saveWater(amountMl, new Date(loggedAt));
+  const provider = getHealthProvider();
+  if (!provider || !isHealthAvailable()) return;
+  const uuid = await provider.saveWater(amountMl, new Date(loggedAt));
   if (uuid && rowId && !rowId.startsWith('tmp-')) {
     await supabase.from('water_logs').update({ hk_uuid: uuid }).eq('id', rowId);
   }

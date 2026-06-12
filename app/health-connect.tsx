@@ -20,11 +20,18 @@ import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
-import { isHealthKitAvailable, requestPermissions } from '@/lib/healthkit';
+import { isHealthAvailable, getHealthProviderName, getHealthProvider } from '@/lib/healthProvider';
 import { syncFromHealthKit } from '@/lib/healthSync';
 import { RootState, AppDispatch } from '@/store';
 import { setHkConnected, setEnabledMetric, resetActivity } from '@/store/slices/activitySlice';
 import type { HealthMetric } from '@/types';
+
+const PROVIDER = getHealthProviderName();
+const IS_IOS = Platform.OS === 'ios';
+// Apple Health → heart/red; Health Connect → pulse/green.
+const BRAND_ICON: React.ComponentProps<typeof Ionicons>['name'] = IS_IOS ? 'heart' : 'pulse';
+const BRAND_COLOR = IS_IOS ? '#FF4F6D' : '#2E7D5B';
+const BRAND_TINT = IS_IOS ? 'rgba(255,79,109,0.14)' : 'rgba(46,125,91,0.14)';
 
 const METRICS: {
   key: HealthMetric;
@@ -57,7 +64,7 @@ const METRICS: {
   {
     key: 'water',
     label: 'Water',
-    desc: 'Two-way sync with Apple Health hydration',
+    desc: `Two-way sync with ${PROVIDER} hydration`,
     icon: 'water-outline',
     color: '#34C5FF',
   },
@@ -70,22 +77,22 @@ export default function HealthConnectScreen() {
   const { showToast } = useToast();
 
   const { hkConnected, enabledMetrics, lastSyncedAt } = useSelector((s: RootState) => s.activity);
-  const available = isHealthKitAvailable();
+  const available = isHealthAvailable();
 
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const handleConnect = useCallback(async () => {
     if (!available) {
-      showToast('Apple Health is only available on iPhone', 'error');
+      showToast(`${PROVIDER} isn't available on this device`, 'error');
       return;
     }
     setConnecting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const granted = await requestPermissions();
+    const granted = await (getHealthProvider()?.requestPermissions() ?? Promise.resolve(false));
     if (granted) {
       dispatch(setHkConnected(true));
-      showToast('Apple Health connected', 'success');
+      showToast(`${PROVIDER} connected`, 'success');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // Immediate first sync
       if (user?.id) {
@@ -94,7 +101,7 @@ export default function HealthConnectScreen() {
         setSyncing(false);
       }
     } else {
-      showToast('Could not connect to Apple Health', 'error');
+      showToast(`Could not connect to ${PROVIDER}`, 'error');
     }
     setConnecting(false);
   }, [available, dispatch, showToast, user?.id, enabledMetrics]);
@@ -118,7 +125,7 @@ export default function HealthConnectScreen() {
 
   const handleDisconnect = useCallback(() => {
     dispatch(resetActivity());
-    showToast('Apple Health disconnected', 'success');
+    showToast(`${PROVIDER} disconnected`, 'success');
   }, [dispatch, showToast]);
 
   const toggleMetric = useCallback(
@@ -133,7 +140,7 @@ export default function HealthConnectScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['bottom']}>
       <Stack.Screen
         options={{
-          title: 'Apple Health',
+          title: PROVIDER,
           headerBackTitle: 'Settings',
         }}
       />
@@ -141,15 +148,15 @@ export default function HealthConnectScreen() {
         {/* Hero */}
         <Animated.View entering={FadeInDown.delay(0).springify()}>
           <LinearGradient
-            colors={theme.isDark ? ['#2A1822', '#1E1828'] : ['#FFF0F4', '#FCEFFF']}
+            colors={theme.isDark ? ['#1A2A22', '#181E28'] : ['#EFF6F0', '#EEF6FF']}
             style={styles.hero}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <View style={styles.heroIcon}>
-              <Ionicons name="heart" size={30} color="#FF4F6D" />
+            <View style={[styles.heroIcon, { backgroundColor: BRAND_TINT }]}>
+              <Ionicons name={BRAND_ICON} size={30} color={BRAND_COLOR} />
             </View>
-            <Text style={[styles.heroTitle, { color: theme.text }]}>Apple Health</Text>
+            <Text style={[styles.heroTitle, { color: theme.text }]}>{PROVIDER}</Text>
             <Text style={[styles.heroSub, { color: theme.textSecondary }]}>
               Sync steps, energy, sleep, and water so Aurora understands your full picture.
             </Text>
@@ -184,9 +191,11 @@ export default function HealthConnectScreen() {
             <View style={[styles.noticeCard, { backgroundColor: theme.card }]}>
               <Ionicons name="information-circle-outline" size={18} color={theme.textSecondary} />
               <Text style={[styles.noticeText, { color: theme.textSecondary }]}>
-                {Platform.OS === 'ios'
+                {IS_IOS
                   ? 'HealthKit is unavailable in this build. Rebuild the dev client with the Health plugin enabled to connect.'
-                  : 'Apple Health is only available on iPhone. This section is hidden on your platform.'}
+                  : Platform.OS === 'android'
+                    ? 'Health Connect isn’t available. Install/enable the Health Connect app and rebuild the dev client with the plugin enabled.'
+                    : 'Device health sync is only available on iPhone and Android.'}
               </Text>
             </View>
           </Animated.View>
@@ -306,7 +315,6 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(255,79,109,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
