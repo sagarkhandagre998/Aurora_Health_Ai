@@ -142,6 +142,7 @@ export default function ProfileScreen() {
   const { todayTotalMl, dailyGoalMl } = useSelector((s: RootState) => s.hydration);
   const { logs: sleepLogs } = useSelector((s: RootState) => s.sleep);
   const { habits, todayCompletionIds } = useSelector((s: RootState) => s.habits);
+  const hkConnected = useSelector((s: RootState) => s.activity.hkConnected);
 
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
@@ -369,6 +370,20 @@ export default function ProfileScreen() {
                 }
               />
             ))}
+          </View>
+        </Animated.View>
+
+        {/* Devices */}
+        <Animated.View entering={FadeInDown.delay(150).springify()}>
+          <SectionHeader title="Devices & Data" />
+          <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <Row
+              icon="heart-outline"
+              label="Apple Health"
+              iconColor="#FF4F6D"
+              value={hkConnected ? 'Connected' : 'Not connected'}
+              onPress={() => router.push('/health-connect')}
+            />
           </View>
         </Animated.View>
 

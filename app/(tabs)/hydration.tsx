@@ -23,6 +23,7 @@ import { Confetti } from 'react-native-fast-confetti';
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { pushWaterToHealthKit } from '@/lib/healthSync';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { WaterBottle } from '@/components/bottle/WaterBottle';
@@ -81,6 +82,8 @@ export default function HydrationScreen() {
   const { showToast } = useToast();
 
   const { logs, todayTotalMl, dailyGoalMl } = useSelector((s: RootState) => s.hydration);
+  const hkConnected = useSelector((s: RootState) => s.activity.hkConnected);
+  const waterSyncEnabled = useSelector((s: RootState) => s.activity.enabledMetrics.water);
   const today = new Date().toISOString().split('T')[0];
   const todayLogs = useMemo(
     () => logs.filter((l) => l.loggedAt.startsWith(today)).slice(0, 20),
@@ -177,12 +180,16 @@ export default function HydrationScreen() {
         dispatch(removeLog(newLog.id));
         dispatch(addLog({ id: data.id, amountMl: data.amount_ml, loggedAt: data.logged_at }));
         buildWeekly([...logs, { id: data.id, amountMl: data.amount_ml, loggedAt: data.logged_at }]);
+        // Mirror to Apple Health when connected (tags row with HK UUID for dedupe)
+        if (hkConnected && waterSyncEnabled) {
+          pushWaterToHealthKit(data.id, data.amount_ml, data.logged_at).catch(() => {});
+        }
       } catch {
         dispatch(removeLog(newLog.id));
         showToast('Could not save water log', 'error');
       }
     },
-    [user?.id, dispatch, showToast, buildWeekly, logs],
+    [user?.id, dispatch, showToast, buildWeekly, logs, hkConnected, waterSyncEnabled],
   );
 
   const handleDelete = useCallback(

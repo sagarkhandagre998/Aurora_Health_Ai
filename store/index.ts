@@ -7,6 +7,7 @@ import sleepReducer from './slices/sleepSlice';
 import habitsReducer from './slices/habitsSlice';
 import nutritionReducer from './slices/nutritionSlice';
 import streakReducer from './slices/streakSlice';
+import activityReducer from './slices/activitySlice';
 // Keep legacy health slice for any remaining references
 import healthReducer from './slices/healthSlice';
 
@@ -18,12 +19,22 @@ const rootReducer = combineReducers({
   habits: habitsReducer,
   nutrition: nutritionReducer,
   streak: streakReducer,
+  activity: activityReducer,
 });
 
 const persistConfig = {
   key: 'root',
   storage: reduxStorage,
-  whitelist: ['health', 'profile', 'hydration', 'sleep', 'habits', 'nutrition', 'streak'],
+  whitelist: [
+    'health',
+    'profile',
+    'hydration',
+    'sleep',
+    'habits',
+    'nutrition',
+    'streak',
+    'activity',
+  ],
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

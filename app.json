@@ -46,6 +46,14 @@
       "expo-notifications",
       "expo-apple-authentication",
       [
+        "@kingstinct/react-native-health",
+        {
+          "isClinicalDataEnabled": false,
+          "healthSharePermission": "Aurora reads your steps, active energy, sleep, and water from Apple Health to give you a complete picture of your day.",
+          "healthUpdatePermission": "Aurora writes the water you log back to Apple Health so your hydration stays in sync."
+        }
+      ],
+      [
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.YOUR_REVERSED_CLIENT_ID"

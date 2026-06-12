@@ -15,6 +15,7 @@ import { store, persistor } from '@/store';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ToastProvider } from '@/components/ui/toast';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useHealthSync } from '@/hooks/useHealthSync';
 import { Colors } from '@/constants/theme';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
@@ -45,6 +46,9 @@ function RootNavigator() {
   const segments = useSegments();
   const router = useRouter();
   const colorScheme = (useColorScheme() ?? 'light') as 'light' | 'dark';
+
+  // Auto-sync Apple Health on foreground when connected (no-op otherwise).
+  useHealthSync();
 
   useEffect(() => {
     if (loading) return;
@@ -81,6 +85,7 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+      <Stack.Screen name="health-connect" options={{ headerShown: true }} />
       <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
     </Stack>
   );

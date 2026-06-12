@@ -22,10 +22,14 @@ export interface Profile {
   notificationPrefs: { hydration: boolean; sleep: boolean; habits: boolean; insights: boolean };
   onboardingComplete: boolean;
 }
+export type LogSource = 'manual' | 'apple_health' | 'ai';
+
 export interface WaterLog {
   id: string;
   amountMl: number;
   loggedAt: string;
+  source?: LogSource;
+  hkUuid?: string;
 }
 export interface SleepLog {
   id: string;
@@ -34,6 +38,8 @@ export interface SleepLog {
   quality?: number;
   sleepStart?: string;
   sleepEnd?: string;
+  source?: LogSource;
+  hkUuid?: string;
 }
 export interface Habit {
   id: string;
@@ -71,4 +77,13 @@ export interface Insight {
   text: string;
   category: string;
   createdAt: string;
+}
+
+// ── Apple Health / Device integration ──────────────────────────────────
+export type HealthMetric = 'steps' | 'activeEnergy' | 'sleep' | 'water';
+
+export interface ActivityDay {
+  date: string; // "YYYY-MM-DD"
+  steps: number;
+  activeEnergyKcal: number;
 }

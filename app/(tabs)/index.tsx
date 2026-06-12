@@ -47,6 +47,9 @@ export default function DashboardScreen() {
   const { habits, todayCompletionIds } = useSelector((s: RootState) => s.habits);
   const { todayMeals } = useSelector((s: RootState) => s.nutrition);
   const { streaks } = useSelector((s: RootState) => s.streak);
+  const { hkConnected, todaySteps, todayActiveEnergyKcal } = useSelector(
+    (s: RootState) => s.activity,
+  );
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -310,6 +313,46 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </Animated.View>
 
+        {/* 3b · Activity Card (Apple Health) */}
+        {hkConnected && (
+          <Animated.View entering={FadeInDown.delay(210).springify()}>
+            <TouchableOpacity
+              style={[styles.card, { backgroundColor: theme.card }]}
+              onPress={() => router.push('/health-connect')}
+              activeOpacity={0.82}
+            >
+              <View style={styles.labelRow}>
+                <Ionicons name="walk" size={15} color={theme.habits} />
+                <Text style={[styles.chipLabel, { color: theme.habits, marginLeft: 5 }]}>
+                  Activity
+                </Text>
+                <View style={styles.hkBadge}>
+                  <Ionicons name="heart" size={9} color="#FF4F6D" />
+                  <Text style={styles.hkBadgeText}>Apple Health</Text>
+                </View>
+              </View>
+              <View style={styles.activityRow}>
+                <View style={styles.activityItem}>
+                  <Text style={[styles.bigValue, { color: theme.text }]}>
+                    {todaySteps.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.subText, { color: theme.textSecondary }]}>steps</Text>
+                </View>
+                <View style={[styles.activityDivider, { backgroundColor: theme.border }]} />
+                <View style={styles.activityItem}>
+                  <Text style={[styles.bigValue, { color: theme.text }]}>
+                    {todayActiveEnergyKcal.toLocaleString()}
+                    <Text style={[styles.unit, { color: theme.textSecondary }]}> kcal</Text>
+                  </Text>
+                  <Text style={[styles.subText, { color: theme.textSecondary }]}>
+                    active energy
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
         {/* 4 · Habits Card */}
         <Animated.View entering={FadeInDown.delay(240).springify()}>
           <TouchableOpacity
@@ -454,6 +497,20 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 3 },
   sleepRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
   starRow: { flexDirection: 'row', gap: 3 },
+  hkBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(255,79,109,0.12)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  hkBadgeText: { fontSize: 9, fontWeight: '700', color: '#FF4F6D', letterSpacing: 0.2 },
+  activityRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  activityItem: { flex: 1 },
+  activityDivider: { width: 1, height: 36, marginHorizontal: 16 },
   streaksRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 },
   streakChip: {
     alignItems: 'center',
