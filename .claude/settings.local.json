@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo:*)",
+      "Bash(node:*)",
+      "Bash(git status:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(curl:*)",
+      "Bash(rm -rf android)"
+    ],
+    "deny": []
+  }
+}
