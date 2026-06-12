@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,13 +14,14 @@ import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
+import { Stack, type ErrorBoundaryProps } from 'expo-router';
 import { formatDistanceToNow } from 'date-fns';
 
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { isHealthAvailable, getHealthProviderName, getHealthProvider } from '@/lib/healthProvider';
+import * as HealthConnect from '@/lib/healthConnect';
 import { syncFromHealthKit } from '@/lib/healthSync';
 import { RootState, AppDispatch } from '@/store';
 import { setHkConnected, setEnabledMetric, resetActivity } from '@/store/slices/activitySlice';
@@ -81,6 +82,21 @@ export default function HealthConnectScreen() {
 
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Android-only: whether the Health Connect SDK/app is actually present.
+  const [hcStatus, setHcStatus] = useState<HealthConnect.HCStatus | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let active = true;
+    HealthConnect.getSdkStatus().then((s) => {
+      if (active) setHcStatus(s);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const needsInstall = Platform.OS === 'android' && hcStatus != null && hcStatus !== 'available';
 
   const handleConnect = useCallback(async () => {
     if (!available) {
@@ -201,16 +217,36 @@ export default function HealthConnectScreen() {
           </Animated.View>
         )}
 
+        {available && needsInstall && (
+          <Animated.View entering={FadeInDown.delay(60).springify()}>
+            <TouchableOpacity
+              style={[styles.noticeCard, { backgroundColor: theme.card }]}
+              onPress={() => HealthConnect.openSettings()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="download-outline" size={18} color={theme.tint} />
+              <Text style={[styles.noticeText, { color: theme.text }]}>
+                {hcStatus === 'update_required'
+                  ? 'Health Connect needs an update on this device. Tap to open and update it, then return here.'
+                  : 'Health Connect isn’t set up on this phone yet. Tap to install/enable it (Play Store on Android 13 and below; built-in on Android 14+), then return here.'}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
         {/* Connect / Sync actions */}
         <Animated.View entering={FadeInDown.delay(120).springify()}>
           {!hkConnected ? (
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
-                { backgroundColor: theme.tint, opacity: connecting || !available ? 0.6 : 1 },
+                {
+                  backgroundColor: theme.tint,
+                  opacity: connecting || !available || needsInstall ? 0.6 : 1,
+                },
               ]}
               onPress={handleConnect}
-              disabled={connecting || !available}
+              disabled={connecting || !available || needsInstall}
               activeOpacity={0.85}
             >
               <Ionicons name="link" size={18} color="#fff" />
@@ -302,9 +338,42 @@ export default function HealthConnectScreen() {
   );
 }
 
+// Route-scoped error boundary: contains any render error to this screen (instead
+// of crashing the whole app) and surfaces the message so it can be diagnosed.
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <SafeAreaView style={styles.boundary}>
+      <Ionicons name="warning-outline" size={56} color="#F5A623" />
+      <Text style={styles.boundaryTitle}>{PROVIDER} screen error</Text>
+      <Text style={styles.boundaryMsg}>{error?.message || 'Unexpected error.'}</Text>
+      <TouchableOpacity style={styles.boundaryBtn} onPress={retry}>
+        <Text style={styles.boundaryBtnText}>Try again</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: 20, gap: 4 },
+  boundary: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    gap: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  boundaryTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
+  boundaryMsg: { fontSize: 14, color: '#4B5563', textAlign: 'center' },
+  boundaryBtn: {
+    marginTop: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#4F7EF5',
+  },
+  boundaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   hero: {
     borderRadius: 24,
     padding: 24,

@@ -30,9 +30,45 @@ function getHC(): any | null {
   return _hc;
 }
 
-/** True only on Android with the native Health Connect module available. */
+/**
+ * True only on Android with the native Health Connect JS module linked.
+ * NOTE: this does NOT guarantee the Health Connect SDK/app is installed on the
+ * device — use `getSdkStatus()` for that. We keep this loose so the UI still
+ * renders (and can prompt to install) rather than hiding the feature entirely.
+ */
 export function isHealthConnectAvailable(): boolean {
   return Platform.OS === 'android' && getHC() != null;
+}
+
+/** Health Connect availability on this device, derived from the SDK status. */
+export type HCStatus = 'available' | 'not_installed' | 'update_required' | 'unsupported';
+
+/**
+ * Probe the on-device Health Connect SDK status. Never throws.
+ * Returns 'unsupported' if the module isn't linked or the call fails.
+ */
+export async function getSdkStatus(): Promise<HCStatus> {
+  const hc = getHC();
+  if (!hc || typeof hc.getSdkStatus !== 'function') return 'unsupported';
+  try {
+    const status = await hc.getSdkStatus();
+    const C = hc.SdkAvailabilityStatus ?? {};
+    if (status === C.SDK_AVAILABLE) return 'available';
+    if (status === C.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED) return 'update_required';
+    return 'not_installed';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/** Open the Health Connect app / Play Store listing so the user can install it. */
+export function openSettings(): void {
+  const hc = getHC();
+  try {
+    hc?.openHealthConnectSettings?.();
+  } catch {
+    // no-op
+  }
 }
 
 // ── Permissions ─────────────────────────────────────────────────────────────
@@ -53,6 +89,10 @@ export async function requestPermissions(): Promise<boolean> {
   const hc = getHC();
   if (!hc) return false;
   try {
+    // Guard: don't touch initialize() unless the SDK is actually present,
+    // otherwise the native layer can throw/crash on some devices.
+    const status = await getSdkStatus();
+    if (status !== 'available') return false;
     const ok = await hc.initialize();
     if (!ok) return false;
     const granted = await hc.requestPermission(REQUESTED_PERMISSIONS);

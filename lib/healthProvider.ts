@@ -83,17 +83,31 @@ let _provider: HealthProvider | null | undefined;
 
 /** The active provider for this platform, or null on unsupported platforms. */
 export function getHealthProvider(): HealthProvider | null {
-  if (_provider === undefined) _provider = buildProvider();
+  if (_provider === undefined) {
+    try {
+      _provider = buildProvider();
+    } catch {
+      _provider = null;
+    }
+  }
   return _provider;
 }
 
 /** Whether a health provider exists AND its native module is usable right now. */
 export function isHealthAvailable(): boolean {
-  const p = getHealthProvider();
-  return !!p && p.isAvailable();
+  try {
+    const p = getHealthProvider();
+    return !!p && p.isAvailable();
+  } catch {
+    return false;
+  }
 }
 
 /** User-facing provider name for the current platform (falls back gracefully). */
 export function getHealthProviderName(): string {
-  return getHealthProvider()?.displayName ?? 'Health';
+  try {
+    return getHealthProvider()?.displayName ?? 'Health';
+  } catch {
+    return 'Health';
+  }
 }
