@@ -72,7 +72,7 @@
       [
         "@react-native-google-signin/google-signin",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.YOUR_REVERSED_CLIENT_ID"
+          "iosUrlScheme": "com.googleusercontent.apps.602245733747-pp2q1bu9r3jvs12pp09n4r9l7i41tgfs"
         }
       ],
       "expo-build-properties"

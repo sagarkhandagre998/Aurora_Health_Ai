@@ -19,6 +19,7 @@ import { router, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
+import { signInWithGoogle } from '@/lib/googleAuth';
 import { useToast } from '@/components/ui/toast';
 import { useTheme } from '@/hooks/useTheme';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -42,6 +43,7 @@ export default function LoginScreen() {
   const { showToast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const {
@@ -71,8 +73,22 @@ export default function LoginScreen() {
     // On success, the auth layout guard automatically redirects
   };
 
-  const handleGoogleSignIn = () => {
-    showToast('Google sign-in coming soon!', 'info');
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const result = await signInWithGoogle();
+
+    setIsGoogleLoading(false);
+
+    if (!result.ok) {
+      if (!result.cancelled) {
+        showToast(result.message, 'error');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+      return;
+    }
+    // On success, the auth layout guard automatically redirects
   };
 
   const gradientColors: [string, string] = isDark
@@ -234,15 +250,26 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={[
                   styles.socialButton,
-                  { borderColor: theme.border, backgroundColor: theme.card },
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: theme.card,
+                    opacity: isGoogleLoading ? 0.7 : 1,
+                  },
                 ]}
                 onPress={handleGoogleSignIn}
                 activeOpacity={0.8}
+                disabled={isGoogleLoading || isLoading}
               >
-                <Ionicons name="logo-google" size={20} color={theme.text} />
-                <Text style={[styles.socialButtonText, { color: theme.text }]}>
-                  Continue with Google
-                </Text>
+                {isGoogleLoading ? (
+                  <Ionicons name="reload-outline" size={20} color={theme.text} />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={20} color={theme.text} />
+                    <Text style={[styles.socialButtonText, { color: theme.text }]}>
+                      Continue with Google
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </Animated.View>
 

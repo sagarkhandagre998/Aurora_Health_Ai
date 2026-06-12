@@ -19,6 +19,7 @@ import { Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
+import { signInWithGoogle } from '@/lib/googleAuth';
 import { useToast } from '@/components/ui/toast';
 import { useTheme } from '@/hooks/useTheme';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -49,6 +50,7 @@ export default function SignupScreen() {
   const { showToast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -83,6 +85,24 @@ export default function SignupScreen() {
 
     showToast("Account created! Let's set up your profile.", 'success');
     // Auth state change triggers onAuthStateChange → layout guard redirects to onboarding
+  };
+
+  const handleGoogleSignUp = async () => {
+    setIsGoogleLoading(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const result = await signInWithGoogle();
+
+    setIsGoogleLoading(false);
+
+    if (!result.ok) {
+      if (!result.cancelled) {
+        showToast(result.message, 'error');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+      return;
+    }
+    // On success, the auth layout guard redirects to onboarding / tabs
   };
 
   const gradientColors: [string, string] = isDark
@@ -330,6 +350,39 @@ export default function SignupScreen() {
                   </>
                 )}
               </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.dividerRow}>
+                <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+                <Text style={[styles.dividerText, { color: theme.textSecondary }]}>or</Text>
+                <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+              </View>
+
+              {/* Google */}
+              <TouchableOpacity
+                style={[
+                  styles.socialButton,
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: theme.card,
+                    opacity: isGoogleLoading ? 0.7 : 1,
+                  },
+                ]}
+                onPress={handleGoogleSignUp}
+                activeOpacity={0.8}
+                disabled={isGoogleLoading || isLoading}
+              >
+                {isGoogleLoading ? (
+                  <Ionicons name="reload-outline" size={20} color={theme.text} />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={20} color={theme.text} />
+                    <Text style={[styles.socialButtonText, { color: theme.text }]}>
+                      Continue with Google
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </Animated.View>
 
             {/* Footer link */}
@@ -447,6 +500,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  dividerText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    gap: 10,
+  },
+  socialButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
