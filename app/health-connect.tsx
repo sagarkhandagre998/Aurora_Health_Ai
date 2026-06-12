@@ -215,7 +215,7 @@ export default function HealthConnectScreen() {
             >
               <Ionicons name="link" size={18} color="#fff" />
               <Text style={styles.primaryBtnText}>
-                {connecting ? 'Connecting…' : 'Connect Apple Health'}
+                {connecting ? 'Connecting…' : `Connect ${PROVIDER}`}
               </Text>
             </TouchableOpacity>
           ) : (

@@ -243,7 +243,30 @@ export default function DashboardScreen() {
           </LinearGradient>
         </Animated.View>
 
-        {/* 2 · Hydration Card */}
+        {/* 2 · Progress & Reports entry */}
+        <Animated.View entering={FadeInDown.delay(90).springify()}>
+          <TouchableOpacity activeOpacity={0.85} onPress={() => router.push('/reports')}>
+            <LinearGradient
+              colors={theme.isDark ? ['#13284A', '#16203F'] : ['#E7F0FF', '#E8FBF3']}
+              style={[styles.card, styles.reportsCard]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={[styles.reportsIcon, { backgroundColor: theme.tint + '22' }]}>
+                <Ionicons name="bar-chart" size={22} color={theme.tint} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.reportsTitle, { color: theme.text }]}>Progress & Reports</Text>
+                <Text style={[styles.reportsSub, { color: theme.textSecondary }]}>
+                  Weekly & monthly trends
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* 3 · Hydration Card */}
         <Animated.View entering={FadeInDown.delay(120).springify()}>
           <TouchableOpacity
             style={[styles.card, { backgroundColor: theme.card }]}
@@ -492,6 +515,16 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   insightCard: { paddingVertical: 22 },
+  reportsCard: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  reportsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportsTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  reportsSub: { fontSize: 13, fontWeight: '500', marginTop: 2 },
   streakCard: {},
   insightText: { fontSize: 16, lineHeight: 25, fontWeight: '500', marginTop: 8 },
   insightCategory: {

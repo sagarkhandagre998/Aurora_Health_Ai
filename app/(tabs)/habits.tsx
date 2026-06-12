@@ -15,7 +15,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import BottomSheet, { BottomSheetScrollView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -26,6 +26,9 @@ import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { ProgressRing } from '@/components/rings/ProgressRing';
+import { DayBars, DayPills } from '@/components/charts/DayBars';
+import { formatDate } from '@/utils/date';
+import { dailyHabit } from '@/utils/reports';
 import { RootState, AppDispatch } from '@/store';
 import {
   setHabits,
@@ -101,9 +104,23 @@ export default function HabitsScreen() {
   const dispatch = useDispatch<AppDispatch>();
   const { showToast } = useToast();
 
-  const { habits, todayCompletionIds } = useSelector((s: RootState) => s.habits);
+  const { habits, completions, todayCompletionIds } = useSelector((s: RootState) => s.habits);
   const activeHabits = useMemo(() => habits.filter((h) => h.status === 'active'), [habits]);
   const today = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState(today);
+
+  // 7-day completion history for the chart + selected-day list.
+  const weekly = useMemo(() => dailyHabit(habits, completions, 7), [habits, completions]);
+  const weeklyData = useMemo(
+    () => weekly.map((d) => ({ date: d.date, value: d.completed })),
+    [weekly],
+  );
+  const selectedCompletedHabits = useMemo(() => {
+    const ids = new Set(
+      completions.filter((c) => c.date === selectedDate && c.count > 0).map((c) => c.habitId),
+    );
+    return habits.filter((h) => ids.has(h.id));
+  }, [completions, habits, selectedDate]);
 
   const [refreshing, setRefreshing] = useState(false);
   const sheetRef = useRef<BottomSheet>(null);
@@ -122,13 +139,14 @@ export default function HabitsScreen() {
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
+    const since = subDays(new Date(), 6).toISOString().split('T')[0];
     const [habRes, compRes] = await Promise.all([
       supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),
-      supabase.from('habit_completions').select('*').eq('user_id', user.id).eq('date', today),
+      supabase.from('habit_completions').select('*').eq('user_id', user.id).gte('date', since),
     ]);
     if (habRes.data) {
       dispatch(
@@ -157,7 +175,7 @@ export default function HabitsScreen() {
         ),
       );
     }
-  }, [user?.id, today, dispatch]);
+  }, [user?.id, dispatch]);
 
   useEffect(() => {
     fetchData();
@@ -202,7 +220,9 @@ export default function HabitsScreen() {
       } catch (err) {
         console.error('[Habits] completion failed:', err);
         showToast(
-          err instanceof Error ? `Could not save completion: ${err.message}` : 'Could not save completion',
+          err instanceof Error
+            ? `Could not save completion: ${err.message}`
+            : 'Could not save completion',
           'error',
         );
       }
@@ -367,6 +387,51 @@ export default function HabitsScreen() {
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
             />
+          )}
+        </Animated.View>
+
+        {/* Last 7 Days history — tap a day to see what was completed */}
+        <Animated.View entering={FadeInDown.delay(150).springify()}>
+          <View style={[styles.card, { backgroundColor: theme.card }]}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Last 7 Days</Text>
+            <DayBars
+              data={weeklyData}
+              color={theme.habits}
+              selectedDate={selectedDate}
+              onSelect={setSelectedDate}
+              formatValue={(v) => (v > 0 ? String(v) : '')}
+              labelColor={theme.textSecondary}
+            />
+            <View style={{ height: 14 }} />
+            <DayPills
+              dates={weeklyData.map((d) => d.date)}
+              selectedDate={selectedDate}
+              onSelect={setSelectedDate}
+              color={theme.habits}
+              cardColor={theme.background}
+              borderColor={theme.border}
+              textColor={theme.text}
+              textSecondary={theme.textSecondary}
+            />
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Completed on {formatDate(selectedDate)}
+          </Text>
+          {selectedCompletedHabits.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                No habits completed on this day.
+              </Text>
+            </View>
+          ) : (
+            selectedCompletedHabits.map((h) => (
+              <View key={h.id} style={[styles.historyRow, { backgroundColor: theme.card }]}>
+                <Text style={styles.habitEmoji}>{h.icon ?? '✅'}</Text>
+                <Text style={[styles.habitName, { color: theme.text, flex: 1 }]}>{h.name}</Text>
+                <Ionicons name="checkmark-circle" size={20} color={theme.habits} />
+              </View>
+            ))
           )}
         </Animated.View>
 
@@ -565,6 +630,30 @@ const styles = StyleSheet.create({
   progressTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   progressSubtitle: { fontSize: 13, fontWeight: '500' },
   sectionTitle: { fontSize: 17, fontWeight: '700', marginBottom: 12 },
+  card: {
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cardTitle: { fontSize: 15, fontWeight: '700', marginBottom: 14 },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
   habitRow: {
     flexDirection: 'row',
     alignItems: 'center',

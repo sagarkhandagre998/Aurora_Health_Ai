@@ -12,7 +12,6 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useDispatch, useSelector } from 'react-redux';
@@ -27,45 +26,15 @@ import { pushWaterToHealthKit } from '@/lib/healthSync';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/components/ui/toast';
 import { WaterBottle } from '@/components/bottle/WaterBottle';
+import { DayBars, DayPills } from '@/components/charts/DayBars';
+import { formatDate } from '@/utils/date';
 import { RootState, AppDispatch } from '@/store';
 import { addLog, removeLog, setLogs, setDailyGoal } from '@/store/slices/hydrationSlice';
 import { WaterLog } from '@/types';
 
 interface ChartBar {
-  label: string;
+  date: string;
   value: number;
-}
-
-function WeeklyChart({ data, color }: { data: ChartBar[]; color: string }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 100, gap: 6 }}>
-      {data.map((d, i) => {
-        const h = Math.max((d.value / max) * 74, d.value > 0 ? 4 : 0);
-        return (
-          <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
-            {d.value > 0 && (
-              <Text style={{ fontSize: 8, color: '#9CA3AF', marginBottom: 2 }}>
-                {(d.value / 1000).toFixed(1)}L
-              </Text>
-            )}
-            <View
-              style={{
-                width: '80%',
-                height: h,
-                backgroundColor: color,
-                borderRadius: 5,
-                opacity: 0.82,
-              }}
-            />
-            <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4, fontWeight: '600' }}>
-              {d.label}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
 }
 
 const QUICK_ADD = [
@@ -85,9 +54,15 @@ export default function HydrationScreen() {
   const hkConnected = useSelector((s: RootState) => s.activity.hkConnected);
   const waterSyncEnabled = useSelector((s: RootState) => s.activity.enabledMetrics.water);
   const today = new Date().toISOString().split('T')[0];
-  const todayLogs = useMemo(
-    () => logs.filter((l) => l.loggedAt.startsWith(today)).slice(0, 20),
-    [logs, today],
+
+  const [selectedDate, setSelectedDate] = useState(today);
+  const selectedLogs = useMemo(
+    () => logs.filter((l) => l.loggedAt.startsWith(selectedDate)).slice(0, 30),
+    [logs, selectedDate],
+  );
+  const selectedTotal = useMemo(
+    () => selectedLogs.reduce((s, l) => s + l.amountMl, 0),
+    [selectedLogs],
   );
 
   const [refreshing, setRefreshing] = useState(false);
@@ -122,7 +97,7 @@ export default function HydrationScreen() {
       const total = allLogs
         .filter((l) => l.loggedAt.startsWith(key))
         .reduce((s, l) => s + l.amountMl, 0);
-      data.push({ label: format(d, 'EEE')[0], value: total });
+      data.push({ date: key, value: total });
     }
     setWeeklyData(data);
   }, []);
@@ -315,27 +290,54 @@ export default function HydrationScreen() {
           </View>
         </Animated.View>
 
-        {/* Weekly Chart */}
+        {/* Weekly Chart — tap a day to view its log */}
         {weeklyData.length > 0 && (
           <Animated.View entering={FadeInDown.delay(180).springify()}>
             <View style={[styles.card, { backgroundColor: theme.card }]}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>Last 7 Days</Text>
-              <WeeklyChart data={weeklyData} color={theme.hydration} />
+              <DayBars
+                data={weeklyData}
+                color={theme.hydration}
+                selectedDate={selectedDate}
+                onSelect={setSelectedDate}
+                formatValue={(v) => (v > 0 ? `${(v / 1000).toFixed(1)}L` : '')}
+                labelColor={theme.textSecondary}
+              />
+              <View style={{ height: 14 }} />
+              <DayPills
+                dates={weeklyData.map((d) => d.date)}
+                selectedDate={selectedDate}
+                onSelect={setSelectedDate}
+                color={theme.hydration}
+                cardColor={theme.background}
+                borderColor={theme.border}
+                textColor={theme.text}
+                textSecondary={theme.textSecondary}
+              />
             </View>
           </Animated.View>
         )}
 
-        {/* Today's Logs */}
+        {/* Selected day's logs */}
         <Animated.View entering={FadeInDown.delay(240).springify()}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Today's Log</Text>
-          {todayLogs.length === 0 ? (
+          <View style={styles.logHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              {`${formatDate(selectedDate)}'s Log`}
+            </Text>
+            <Text style={[styles.logHeaderTotal, { color: theme.hydration }]}>
+              {selectedTotal.toLocaleString()} ml
+            </Text>
+          </View>
+          {selectedLogs.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No water logged yet today. Tap a quick-add button to start!
+                {selectedDate === today
+                  ? 'No water logged yet today. Tap a quick-add button to start!'
+                  : 'No water logged on this day.'}
               </Text>
             </View>
           ) : (
-            todayLogs.map((log) => (
+            selectedLogs.map((log) => (
               <View key={log.id} style={[styles.logRow, { backgroundColor: theme.card }]}>
                 <View style={[styles.logIcon, { backgroundColor: theme.hydration + '18' }]}>
                   <Ionicons name="water" size={16} color={theme.hydration} />
@@ -471,6 +473,14 @@ const styles = StyleSheet.create({
   remainLabel: { fontSize: 15, fontWeight: '700' },
   pctText: { fontSize: 13, fontWeight: '500' },
   sectionTitle: { fontSize: 17, fontWeight: '700', marginBottom: 12, marginTop: 8 },
+  logHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  logHeaderTotal: { fontSize: 15, fontWeight: '800' },
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   quickBtn: {
     flexDirection: 'row',

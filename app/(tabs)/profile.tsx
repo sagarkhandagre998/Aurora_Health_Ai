@@ -392,6 +392,16 @@ export default function ProfileScreen() {
 
         {/* Weekly Summary */}
         <Animated.View entering={FadeInDown.delay(180).springify()}>
+          <SectionHeader title="Insights" />
+          <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <Row
+              icon="bar-chart-outline"
+              label="Progress & Reports"
+              value="Weekly & monthly trends"
+              iconColor={theme.tint}
+              onPress={() => router.push('/reports')}
+            />
+          </View>
           <SectionHeader title="Today at a Glance" />
           <View style={[styles.statsCard, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
