@@ -80,10 +80,13 @@ let activePlayer: ReturnType<typeof createAudioPlayer> | null = null;
 export async function speakText(
   text: string,
   audioBase64?: string,
-  opts?: { onDone?: () => void },
+  opts?: { onDone?: () => void; mimeType?: string },
 ): Promise<void> {
   if (audioBase64) {
-    const uri = FileSystem.cacheDirectory + 'aurora_tts.mp3';
+    // Gemini TTS returns WAV; ElevenLabs returns MP3. Match the file extension
+    // to the payload so expo-audio decodes it correctly.
+    const ext = opts?.mimeType?.includes('wav') ? 'wav' : 'mp3';
+    const uri = `${FileSystem.cacheDirectory}aurora_tts.${ext}`;
     await FileSystem.writeAsStringAsync(uri, audioBase64, {
       encoding: FileSystem.EncodingType.Base64,
     });
@@ -103,6 +106,44 @@ export async function speakText(
       opts?.onDone?.();
     }
   }
+}
+
+/**
+ * Synthesise arbitrary text into Aurora's server voice (Gemini → ElevenLabs)
+ * via the `tts` edge function. Returns the audio payload, or null on failure
+ * so callers can fall back to on-device TTS. Used for text we generate on the
+ * client (e.g. the opening greeting) that doesn't come from the AI companion.
+ */
+export async function synthesizeSpeech(
+  text: string,
+): Promise<{ audioBase64: string; mimeType: string } | null> {
+  const spoken = stripForSpeech(text);
+  if (!spoken) return null;
+  try {
+    const { data, error } = await supabase.functions.invoke('tts', { body: { text: spoken } });
+    if (error) return null;
+    const audioBase64 = (data as { audioBase64?: string })?.audioBase64;
+    const mimeType = (data as { mimeType?: string })?.mimeType ?? 'audio/wav';
+    return audioBase64 ? { audioBase64, mimeType } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Speak text using Aurora's server voice, falling back to on-device TTS when
+ * the TTS service is unavailable. Convenience wrapper around synthesizeSpeech
+ * + speakText for client-generated text.
+ */
+export async function speakWithServerVoice(
+  text: string,
+  opts?: { onDone?: () => void },
+): Promise<void> {
+  const audio = await synthesizeSpeech(text);
+  return speakText(text, audio?.audioBase64, {
+    onDone: opts?.onDone,
+    mimeType: audio?.mimeType,
+  });
 }
 
 /** Immediately stop any in-progress speech (device TTS + ElevenLabs audio). */

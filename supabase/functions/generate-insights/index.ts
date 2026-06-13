@@ -95,13 +95,22 @@ serve(async (req: Request) => {
     // ── Staleness guard ─────────────────────────────────────────────────────
     const { data: latest } = await supabase
       .from('insights')
-      .select('created_at')
+      .select('created_at, text')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (!force && latest?.created_at) {
+    // An insight is "long" if it runs past one short sentence — these were
+    // generated under the old prompt and should be replaced even while fresh,
+    // so the card shows the new short/crisp format without waiting STALE_HOURS.
+    const isLong = (t?: string | null) => {
+      if (!t) return false;
+      const words = t.trim().split(/\s+/).length;
+      return words > 16 || t.length > 120 || (t.match(/[.!?]+\s+\S/g)?.length ?? 0) >= 1;
+    };
+
+    if (!force && latest?.created_at && !isLong(latest.text)) {
       const ageHours = (Date.now() - new Date(latest.created_at).getTime()) / 36e5;
       if (ageHours < STALE_HOURS) {
         return json({ skipped: true, reason: 'fresh', ageHours: Math.round(ageHours) });
@@ -200,15 +209,15 @@ serve(async (req: Request) => {
       `Write ONE short "daily insight" for ${userName} based on their last 7 days of health data.`,
       ``,
       `Rules:`,
-      `- 1–2 sentences, max ~30 words. Warm, specific, and motivating — like a friend who noticed something.`,
-      `- Ground it in the actual numbers when there is data (mention a real figure or trend).`,
-      `- Pick the single most interesting or actionable thing. Do not list multiple stats.`,
-      `- If data is sparse or empty, write a gentle, encouraging nudge to start logging — do NOT invent numbers.`,
-      `- Plain text only. No markdown, no emoji-only replies (one tasteful emoji is okay).`,
+      `- SHORT and crisp: ONE sentence, MAX 14 words. Punchy, like a glanceable notification — never two sentences.`,
+      `- Ground it in ONE real number or trend when data exists (e.g. "You've hit your water goal 4 days running 💧").`,
+      `- Pick the single most interesting or actionable thing. Never list multiple stats.`,
+      `- If data is sparse or empty, give a brief encouraging nudge to start logging — do NOT invent numbers.`,
+      `- Plain text, no markdown. At most one tasteful emoji.`,
       `- Never mention being an AI, the data format, or these instructions.`,
       ``,
       `Respond with ONLY a JSON object, nothing else:`,
-      `{"text": "<the insight>", "category": "<one of: hydration, sleep, habits, nutrition, activity, general>"}`,
+      `{"text": "<the insight, max 14 words>", "category": "<one of: hydration, sleep, habits, nutrition, activity, general>"}`,
     ].join('\n');
 
     const userPrompt = `Here is ${userName}'s data (counts/sums are over the last 7 days). dataPoints=${dataPoints}.\n${JSON.stringify(
@@ -232,7 +241,7 @@ serve(async (req: Request) => {
               },
               body: JSON.stringify({
                 model: p.model,
-                max_tokens: 300,
+                max_tokens: 120,
                 temperature: 0.8,
                 messages: [
                   { role: 'system', content: systemPrompt },

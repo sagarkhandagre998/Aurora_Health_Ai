@@ -40,7 +40,7 @@ import {
 } from 'expo-audio';
 
 import { sendToCompanion, CompanionMessage } from '@/lib/ai';
-import { transcribeAudio, speakText, stopSpeaking } from '@/lib/voice';
+import { transcribeAudio, speakText, speakWithServerVoice, stopSpeaking } from '@/lib/voice';
 
 type OrbStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -408,7 +408,7 @@ export default function CompanionScreen() {
     const timer = setTimeout(() => {
       const spoken = `Hi ${firstNameRef.current}! I'm Aurora, your health companion. How can I help today?`;
       setGreetingSpeaking(true);
-      speakText(spoken, undefined, { onDone: () => setGreetingSpeaking(false) }).catch(() =>
+      speakWithServerVoice(spoken, { onDone: () => setGreetingSpeaking(false) }).catch(() =>
         setGreetingSpeaking(false),
       );
     }, 700);
@@ -456,7 +456,9 @@ export default function CompanionScreen() {
         setStreamSpeaking(speak);
         setStreamingId(aid);
         if (speak && res.replyText) {
-          speakText(res.replyText, res.audioBase64).catch((e) => console.error('[Aurora] speak failed:', e));
+          speakText(res.replyText, res.audioBase64, { mimeType: res.audioMimeType }).catch((e) =>
+            console.error('[Aurora] speak failed:', e),
+          );
         }
       } catch (err) {
         console.error('[Aurora] sendToCompanion failed:', err);

@@ -636,6 +636,7 @@ serve(async (req: Request) => {
 
     // ── Optional TTS ───────────────────────────────────────────────────────
     let audioBase64: string | undefined;
+    let audioMimeType: string | undefined;
     if (useVoice && replyText) {
       try {
         const ttsRes = await fetch(`${supabaseUrl}/functions/v1/tts`, {
@@ -650,13 +651,18 @@ serve(async (req: Request) => {
         if (ttsRes.ok) {
           const ttsData = await ttsRes.json();
           audioBase64 = ttsData.audioBase64 as string | undefined;
+          audioMimeType = ttsData.mimeType as string | undefined;
         }
       } catch {
         // TTS failure is non-fatal; voice falls back to device TTS on the client.
       }
     }
 
-    return json({ replyText, actions, ...(audioBase64 && { audioBase64 }) });
+    return json({
+      replyText,
+      actions,
+      ...(audioBase64 && { audioBase64, audioMimeType }),
+    });
   } catch (err) {
     console.error('[ai-companion]', err);
     return json({ error: (err as Error).message }, 500);

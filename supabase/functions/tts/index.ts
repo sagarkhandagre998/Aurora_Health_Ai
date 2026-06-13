@@ -1,27 +1,25 @@
 /**
- * tts — Text-to-speech edge function using ElevenLabs.
+ * tts — Text-to-speech edge function.
  *
- * Accepts JSON { text: string }, synthesises speech with ElevenLabs Rachel
- * (voice id 21m00Tcm4TlvDq8ikWAM, eleven_flash_v2_5 model), and returns the
- * audio as a base64-encoded string so the client can play it with expo-audio
- * without writing a temporary file.
+ * Primary provider: Google Gemini TTS (gemini-2.5-flash-preview-tts) using the
+ * "Aoede" prebuilt voice — the same lifelike voice family as Gemini Live's
+ * native audio. Gemini returns raw 24kHz/16-bit mono PCM, which we wrap in a
+ * WAV header so the client can play it directly.
+ *
+ * Fallback provider: ElevenLabs (Rachel, eleven_flash_v2_5). Used when Gemini
+ * is rate-limited (429), errors, or has no API key. Returns mp3.
+ *
+ * Accepts JSON { text: string } and returns { audioBase64, mimeType, provider }.
  *
  * Deploy: supabase functions deploy tts
- * Env vars: ELEVENLABS_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Env vars:
+ *   GEMINI_API_KEY      — Google AI Studio key (primary). Free tier works.
+ *   ELEVENLABS_API_KEY  — ElevenLabs key (fallback).
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Optional overrides: GEMINI_TTS_MODEL, GEMINI_TTS_VOICE.
  *
- * Client fallback: if this function returns an error or ELEVENLABS_API_KEY is
- * not set (status 503), the client should fall back to expo-speech for
- * on-device TTS.
- *
- * Client playback example (expo-audio):
- *   import { Audio } from 'expo-audio';
- *   import * as FileSystem from 'expo-file-system';
- *
- *   const { audioBase64, mimeType } = res.data;
- *   const uri = FileSystem.cacheDirectory + 'aurora_tts.mp3';
- *   await FileSystem.writeAsStringAsync(uri, audioBase64, { encoding: 'base64' });
- *   const { sound } = await Audio.Sound.createAsync({ uri });
- *   await sound.playAsync();
+ * Client fallback: if this returns 503 (no providers configured) or an error,
+ * the client falls back to expo-speech (on-device TTS).
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -29,15 +27,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** ElevenLabs Rachel — calm, natural, female English voice. */
-const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
+/** Gemini TTS model on the generateContent API (free tier, with rate limits). */
+const GEMINI_MODEL = Deno.env.get('GEMINI_TTS_MODEL') ?? 'gemini-2.5-flash-preview-tts';
+/** Prebuilt voice — Aoede: warm, melodic female. Shared with Gemini Live. */
+const GEMINI_VOICE = Deno.env.get('GEMINI_TTS_VOICE') ?? 'Aoede';
 
-/**
- * eleven_flash_v2_5: lowest latency ElevenLabs model, optimised for
- * real-time conversational use. Upgrade to eleven_turbo_v2_5 for higher
- * quality at the cost of slightly more latency.
- */
-const MODEL_ID = 'eleven_flash_v2_5';
+/** ElevenLabs Rachel — calm, natural female English voice (fallback). */
+const ELEVEN_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
+/** eleven_flash_v2_5: lowest-latency ElevenLabs model for conversational use. */
+const ELEVEN_MODEL_ID = 'eleven_flash_v2_5';
 
 /** Characters per request guard — keep AI replies short (2-3 sentences). */
 const MAX_CHARS = 500;
@@ -57,12 +55,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Audio helpers ──────────────────────────────────────────────────────────
 
 /**
- * Convert a Uint8Array to a base64 string in Deno without hitting the
- * call-stack limit that a single String.fromCharCode(...arr) would on large
- * buffers (typically >~65 KB).
+ * Convert a Uint8Array to base64 in Deno without hitting the call-stack limit
+ * that a single String.fromCharCode(...arr) would on large buffers (>~65 KB).
  */
 function uint8ToBase64(bytes: Uint8Array): string {
   const CHUNK = 8192;
@@ -71,6 +68,145 @@ function uint8ToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK));
   }
   return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Wrap raw signed 16-bit little-endian PCM in a minimal 44-byte WAV header so
+ * expo-audio can play it. Gemini TTS returns mono 24kHz PCM by default.
+ */
+function pcmToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1, bitsPerSample = 16): Uint8Array {
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = pcm.length;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // audio format = PCM
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+  const out = new Uint8Array(buffer);
+  out.set(pcm, 44);
+  return out;
+}
+
+// ─── Providers ────────────────────────────────────────────────────────────────
+
+interface TtsResult {
+  audioBase64: string;
+  mimeType: string;
+  provider: 'gemini' | 'elevenlabs';
+}
+
+/**
+ * Synthesise with Gemini TTS. Returns the WAV audio, or null when it should
+ * fall back (rate-limited, errored, or no audio in the response).
+ */
+async function tryGemini(text: string, key: string): Promise<TtsResult | null> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_VOICE } },
+            },
+          },
+        }),
+      },
+    );
+  } catch (e) {
+    console.error('[tts] Gemini fetch failed:', (e as Error).message);
+    return null;
+  }
+
+  if (res.status === 429) {
+    console.log('[tts] Gemini rate-limited (429) — falling back to ElevenLabs.');
+    return null;
+  }
+  if (!res.ok) {
+    console.error('[tts] Gemini error', res.status, await res.text());
+    return null;
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const data = (await res.json()) as any;
+  const parts = data?.candidates?.[0]?.content?.parts ?? [];
+  // deno-lint-ignore no-explicit-any
+  const audioPart = parts.find((p: any) => p?.inlineData?.data);
+  if (!audioPart) {
+    console.error('[tts] Gemini returned no audio part.');
+    return null;
+  }
+
+  const mime: string = audioPart.inlineData.mimeType ?? 'audio/L16;codec=pcm;rate=24000';
+  const rate = parseInt(mime.match(/rate=(\d+)/)?.[1] ?? '24000', 10);
+  const pcm = base64ToUint8(audioPart.inlineData.data as string);
+  const wav = pcmToWav(pcm, rate);
+
+  console.log(`[tts] served by gemini (${GEMINI_MODEL}, voice=${GEMINI_VOICE})`);
+  return { audioBase64: uint8ToBase64(wav), mimeType: 'audio/wav', provider: 'gemini' };
+}
+
+/** Synthesise with ElevenLabs (fallback). Returns mp3, or null on failure. */
+async function tryElevenLabs(text: string, key: string): Promise<TtsResult | null> {
+  let res: Response;
+  try {
+    res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'xi-api-key': key, Accept: 'audio/mpeg' },
+      body: JSON.stringify({
+        text,
+        model_id: ELEVEN_MODEL_ID,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true,
+        },
+      }),
+    });
+  } catch (e) {
+    console.error('[tts] ElevenLabs fetch failed:', (e as Error).message);
+    return null;
+  }
+
+  if (!res.ok) {
+    console.error('[tts] ElevenLabs error', res.status, await res.text());
+    return null;
+  }
+
+  const audioBuffer = await res.arrayBuffer();
+  console.log('[tts] served by elevenlabs (fallback)');
+  return {
+    audioBase64: uint8ToBase64(new Uint8Array(audioBuffer)),
+    mimeType: 'audio/mpeg',
+    provider: 'elevenlabs',
+  };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -90,16 +226,21 @@ serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', ''),
-    );
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
     if (authError || !user) return json({ error: 'Unauthorized' }, 401);
 
-    // ── API key guard (graceful 503 so client can fall back) ───────────────
+    // ── Provider key guard (graceful 503 so client can fall back) ──────────
+    const geminiKey = Deno.env.get('GEMINI_API_KEY') ?? Deno.env.get('GEMINI_API');
     const elevenKey = Deno.env.get('ELEVENLABS_API_KEY');
-    if (!elevenKey) {
+    if (!geminiKey && !elevenKey) {
       return json(
-        { error: 'TTS service unavailable — ELEVENLABS_API_KEY not configured. Use expo-speech as fallback.' },
+        {
+          error:
+            'TTS unavailable — set GEMINI_API_KEY (primary) or ELEVENLABS_API_KEY (fallback). Use expo-speech as fallback.',
+        },
         503,
       );
     }
@@ -107,19 +248,15 @@ serve(async (req: Request) => {
     // ── Parse body ─────────────────────────────────────────────────────────
     let text: string;
     try {
-      const body = await req.json() as { text?: unknown };
+      const body = (await req.json()) as { text?: unknown };
       text = typeof body?.text === 'string' ? body.text.trim() : '';
     } catch {
       return json({ error: 'Request body must be JSON with a "text" field.' }, 400);
     }
-
     if (!text) return json({ error: '"text" field is required and must be non-empty.' }, 400);
 
-    // Strip markdown + emoji / symbols so the voice doesn't read them aloud
-    // (e.g. "**Water**" → "Water", "🌟" → no "glowing star"). The client UI
-    // keeps the original text.
+    // Strip markdown + emoji / symbols so the voice doesn't read them aloud.
     text = text
-      // Markdown formatting → plain words.
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
       .replace(/__(.*?)__/g, '$1')
@@ -129,71 +266,32 @@ serve(async (req: Request) => {
       .replace(/^\s*([-*•]|\d+\.)\s+/gm, '')
       .replace(/`+/g, '')
       .replace(/[*_|]/g, '')
-      // Emoji & symbols.
       .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
-      .replace(/[☀-➿]/g, '') // misc symbols & dingbats (✅ ✨ ☀)
-      .replace(/[←-⇿]/g, '') // arrows
-      .replace(/[⌀-⏿]/g, '') // misc technical (⏰)
-      .replace(/[⬀-⯿]/g, '') // stars/arrows (⭐)
-      .replace(/[︀-️‍⃣]/g, '') // variation selectors, ZWJ, keycap
+      .replace(/[☀-➿]/g, '')
+      .replace(/[←-⇿]/g, '')
+      .replace(/[⌀-⏿]/g, '')
+      .replace(/[⬀-⯿]/g, '')
+      .replace(/[︀-️‍⃣]/g, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
 
     if (!text) return json({ error: 'Nothing to speak after removing symbols.' }, 400);
+    if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS);
 
-    // Trim to max allowed length to avoid runaway costs.
-    if (text.length > MAX_CHARS) {
-      text = text.slice(0, MAX_CHARS);
+    // ── Gemini first, ElevenLabs fallback ──────────────────────────────────
+    let result: TtsResult | null = null;
+    if (geminiKey) result = await tryGemini(text, geminiKey);
+    if (!result && elevenKey) result = await tryElevenLabs(text, elevenKey);
+
+    if (!result) {
+      return json({ error: 'All TTS providers failed.' }, 502);
     }
-
-    // ── Call ElevenLabs API ────────────────────────────────────────────────
-    const elevenRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': elevenKey,
-          // Request mp3 at 128 kbps — good balance of quality vs. payload size.
-          Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify({
-          text,
-          model_id: MODEL_ID,
-          voice_settings: {
-            stability: 0.50,          // 0 = more expressive, 1 = more consistent
-            similarity_boost: 0.75,   // closeness to the original voice
-            style: 0.0,               // disable style exaggeration for natural speech
-            use_speaker_boost: true,  // enhances voice presence
-          },
-        }),
-      },
-    );
-
-    if (!elevenRes.ok) {
-      const errText = await elevenRes.text();
-      console.error('[tts] ElevenLabs error:', elevenRes.status, errText);
-
-      // Surface a helpful message for common errors.
-      if (elevenRes.status === 401) {
-        return json({ error: 'Invalid ELEVENLABS_API_KEY.' }, 502);
-      }
-      if (elevenRes.status === 422) {
-        return json({ error: `ElevenLabs rejected the request: ${errText}` }, 502);
-      }
-      throw new Error(`ElevenLabs API ${elevenRes.status}: ${errText}`);
-    }
-
-    // ── Encode audio as base64 ─────────────────────────────────────────────
-    const audioBuffer = await elevenRes.arrayBuffer();
-    const audioBase64 = uint8ToBase64(new Uint8Array(audioBuffer));
 
     return json({
-      audioBase64,
-      mimeType: 'audio/mpeg',
-      /** Approx. duration hint (not precise) for the client to pre-size a buffer. */
-      byteLength: audioBuffer.byteLength,
+      audioBase64: result.audioBase64,
+      mimeType: result.mimeType,
+      provider: result.provider,
     });
   } catch (err) {
     console.error('[tts]', err);

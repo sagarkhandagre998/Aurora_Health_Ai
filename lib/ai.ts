@@ -14,6 +14,8 @@ export interface CompanionResponse {
   replyText: string;
   actions: CompanionAction[];
   audioBase64?: string;
+  /** MIME type of audioBase64, e.g. 'audio/wav' (Gemini) or 'audio/mpeg' (ElevenLabs). */
+  audioMimeType?: string;
 }
 
 /**
@@ -66,7 +68,12 @@ export async function sendToCompanion(
     throw new Error(detail);
   }
 
-  const raw = data as { replyText?: string; actions?: unknown; audioBase64?: string };
+  const raw = data as {
+    replyText?: string;
+    actions?: unknown;
+    audioBase64?: string;
+    audioMimeType?: string;
+  };
 
   // The function returns actions as string[] (tool names); normalise to objects.
   const actions: CompanionAction[] = Array.isArray(raw.actions)
@@ -79,5 +86,6 @@ export async function sendToCompanion(
     replyText: raw.replyText ?? '',
     actions,
     audioBase64: raw.audioBase64,
+    audioMimeType: raw.audioMimeType,
   };
 }

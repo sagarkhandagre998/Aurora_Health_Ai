@@ -1,11 +1,11 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
 import { useTheme } from '@/hooks/useTheme';
 import { FloatingCompanion } from '@/components/companion/FloatingCompanion';
+import { AnimatedMicButton } from '@/components/companion/AnimatedMicButton';
 
 export default function TabLayout() {
   const theme = useTheme();
@@ -63,24 +63,13 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Center FAB — Aurora AI Companion */}
+      {/* Center FAB — Aurora AI Companion (animated to draw attention) */}
       <Tabs.Screen
         name="companion"
         options={{
           title: '',
           tabBarLabel: () => null,
-          tabBarIcon: () => (
-            <View style={styles.fabWrapper}>
-              <LinearGradient
-                colors={['#4F7EF5', '#8B7CF0']}
-                style={styles.fab}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Ionicons name="mic" size={26} color="#FFFFFF" />
-              </LinearGradient>
-            </View>
-          ),
+          tabBarIcon: ({ focused }) => <AnimatedMicButton focused={focused} />,
         }}
       />
 
@@ -132,24 +121,3 @@ export default function TabLayout() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  fabWrapper: {
-    top: -18,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    shadowColor: '#4F7EF5',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  fab: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

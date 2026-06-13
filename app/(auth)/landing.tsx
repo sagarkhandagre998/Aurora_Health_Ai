@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
+  cancelAnimation,
   Easing,
   Extrapolation,
   FadeInDown,
@@ -166,7 +167,13 @@ function BackgroundLayer({ index, scrollX, colors, start, end }: BgLayerProps) {
     ),
   }));
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, style]} pointerEvents="none">
+    <Animated.View
+      style={[StyleSheet.absoluteFill, style]}
+      pointerEvents="none"
+      // Rasterise each gradient to a GPU texture so the opacity crossfade is a
+      // cheap compositing op instead of re-drawing the gradient every frame.
+      renderToHardwareTextureAndroid
+    >
       <LinearGradient colors={colors} start={start} end={end} style={StyleSheet.absoluteFill} />
     </Animated.View>
   );
@@ -175,20 +182,28 @@ function BackgroundLayer({ index, scrollX, colors, start, end }: BgLayerProps) {
 // ─── Per-slide themed animations ────────────────────────────────────────────
 // Each slide carries a looping animation that illustrates its title: a beating
 // heart for tracking, growing bars for insights, a filling streak for habits,
-// radar rings for self-discovery, twinkling sparkles for the companion. They
-// run continuously so the page feels alive the moment you land on it.
+// radar rings for self-discovery, twinkling sparkles for the companion.
+//
+// Loops only run while their slide is `active` — during a swipe the off-screen
+// slides are frozen, so the scroll keeps the UI thread to itself and stays
+// buttery. Each animation (re)starts the moment its slide settles into view.
 
 const CLAMP = Extrapolation.CLAMP;
 
-/** Small helper: a shared value looping 0→1 forever (optionally yo-yo). */
-function useLoop(duration: number, delay = 0, reverse = true) {
+/** A shared value looping 0→1 forever while `active` (optionally yo-yo). */
+function useLoop(duration: number, delay = 0, reverse = true, active = true) {
   const v = useSharedValue(0);
   useEffect(() => {
+    if (!active) {
+      cancelAnimation(v);
+      return;
+    }
     v.value = withDelay(
       delay,
       withRepeat(withTiming(1, { duration, easing: Easing.inOut(Easing.ease) }), -1, reverse),
     );
-  }, [v, duration, delay, reverse]);
+    return () => cancelAnimation(v);
+  }, [v, duration, delay, reverse, active]);
   return v;
 }
 
@@ -231,10 +246,15 @@ function CompanionVisual({ color, active }: { color: string; active: boolean }) 
 }
 
 // 2 · Tracking — a heart with a "lub-dub" beat and an expanding pulse ring.
-function HeartbeatVisual({ color }: { color: string }) {
+function HeartbeatVisual({ color, active }: { color: string; active: boolean }) {
   const beat = useSharedValue(1);
   const ripple = useSharedValue(0);
   useEffect(() => {
+    if (!active) {
+      cancelAnimation(beat);
+      cancelAnimation(ripple);
+      return;
+    }
     beat.value = withRepeat(
       withSequence(
         withTiming(1.18, { duration: 110 }),
@@ -249,7 +269,11 @@ function HeartbeatVisual({ color }: { color: string }) {
       -1,
       false,
     );
-  }, [beat, ripple]);
+    return () => {
+      cancelAnimation(beat);
+      cancelAnimation(ripple);
+    };
+  }, [beat, ripple, active]);
 
   const heartStyle = useAnimatedStyle(() => ({ transform: [{ scale: beat.value }] }));
   const rippleStyle = useAnimatedStyle(() => ({
@@ -267,20 +291,23 @@ function HeartbeatVisual({ color }: { color: string }) {
   );
 }
 
-// A single equalizer bar.
+// A single equalizer bar. Animates scaleY (a transform, GPU-cheap) anchored at
+// the bottom — NOT height, which would force a layout pass every frame.
 function Bar({
   color,
   duration,
   delay,
   faint,
+  active,
 }: {
   color: string;
   duration: number;
   delay: number;
   faint: boolean;
+  active: boolean;
 }) {
-  const v = useLoop(duration, delay);
-  const style = useAnimatedStyle(() => ({ height: 26 + v.value * 70 }));
+  const v = useLoop(duration, delay, true, active);
+  const style = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.27 + v.value * 0.73 }] }));
   return (
     <Animated.View
       style={[styles.bar, { backgroundColor: color, opacity: faint ? 0.55 : 0.9 }, style]}
@@ -289,7 +316,7 @@ function Bar({
 }
 
 // 3 · Insights — five equalizer bars rising and falling like data building.
-function InsightsBarsVisual({ color }: { color: string }) {
+function InsightsBarsVisual({ color, active }: { color: string; active: boolean }) {
   const cfg: [number, number][] = [
     [700, 0],
     [900, 120],
@@ -300,7 +327,14 @@ function InsightsBarsVisual({ color }: { color: string }) {
   return (
     <View style={[styles.visualWrap, styles.barsRow]}>
       {cfg.map(([duration, delay], i) => (
-        <Bar key={i} color={color} duration={duration} delay={delay} faint={i % 2 === 0} />
+        <Bar
+          key={i}
+          color={color}
+          duration={duration}
+          delay={delay}
+          faint={i % 2 === 0}
+          active={active}
+        />
       ))}
     </View>
   );
@@ -335,15 +369,20 @@ function HabitChip({
 }
 
 // 4 · Habits — three rings light up in sequence, then loop: consistency.
-function HabitsStreakVisual({ color }: { color: string }) {
+function HabitsStreakVisual({ color, active }: { color: string; active: boolean }) {
   const progress = useSharedValue(0);
   useEffect(() => {
+    if (!active) {
+      cancelAnimation(progress);
+      return;
+    }
     progress.value = withRepeat(
       withTiming(3, { duration: 2400, easing: Easing.linear }),
       -1,
       false,
     );
-  }, [progress]);
+    return () => cancelAnimation(progress);
+  }, [progress, active]);
   return (
     <View style={[styles.visualWrap, styles.checksRow]}>
       {[0, 1, 2].map((i) => (
@@ -363,17 +402,28 @@ function RadarRing({ color, value }: { color: string; value: SharedValue<number>
 }
 
 // 5 · Self — radar rings expand outward from a person: daily discovery.
-function SelfRadarVisual({ color }: { color: string }) {
+function SelfRadarVisual({ color, active }: { color: string; active: boolean }) {
   const r1 = useSharedValue(0);
   const r2 = useSharedValue(0);
   const r3 = useSharedValue(0);
-  const bob = useLoop(1600);
+  const bob = useLoop(1600, 0, true, active);
   useEffect(() => {
+    if (!active) {
+      cancelAnimation(r1);
+      cancelAnimation(r2);
+      cancelAnimation(r3);
+      return;
+    }
     const opt = { duration: 2600, easing: Easing.out(Easing.ease) } as const;
     r1.value = withRepeat(withTiming(1, opt), -1, false);
     r2.value = withDelay(870, withRepeat(withTiming(1, opt), -1, false));
     r3.value = withDelay(1740, withRepeat(withTiming(1, opt), -1, false));
-  }, [r1, r2, r3]);
+    return () => {
+      cancelAnimation(r1);
+      cancelAnimation(r2);
+      cancelAnimation(r3);
+    };
+  }, [r1, r2, r3, active]);
   const bobStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -4 + bob.value * 8 }] }));
   return (
     <View style={styles.visualWrap}>
@@ -393,13 +443,13 @@ function SlideVisual({ slide, active }: { slide: FeatureSlide; active: boolean }
     case 'companion':
       return <CompanionVisual color={slide.iconColor} active={active} />;
     case 'tracking':
-      return <HeartbeatVisual color={slide.iconColor} />;
+      return <HeartbeatVisual color={slide.iconColor} active={active} />;
     case 'insights':
-      return <InsightsBarsVisual color={slide.iconColor} />;
+      return <InsightsBarsVisual color={slide.iconColor} active={active} />;
     case 'habits':
-      return <HabitsStreakVisual color={slide.iconColor} />;
+      return <HabitsStreakVisual color={slide.iconColor} active={active} />;
     case 'self':
-      return <SelfRadarVisual color={slide.iconColor} />;
+      return <SelfRadarVisual color={slide.iconColor} active={active} />;
     default:
       return (
         <View style={[styles.featureIconWrap, { backgroundColor: slide.iconColor + '18' }]}>
@@ -409,9 +459,9 @@ function SlideVisual({ slide, active }: { slide: FeatureSlide; active: boolean }
   }
 }
 
-function AnimatedHeroSlide() {
+function AnimatedHeroSlide({ active }: { active: boolean }) {
   // Gently floating decorative circles keep the hero alive on first launch.
-  const float = useLoop(3200);
+  const float = useLoop(3200, 0, true, active);
   const c1Style = useAnimatedStyle(() => ({ transform: [{ translateY: -10 + float.value * 20 }] }));
   const c2Style = useAnimatedStyle(() => ({ transform: [{ translateY: 12 - float.value * 20 }] }));
 
@@ -555,7 +605,7 @@ export default function LandingScreen() {
         {SLIDES.map((slide, i) => (
           <View key={slide.id} style={styles.slideWrapper}>
             {slide.type === 'hero' ? (
-              <AnimatedHeroSlide />
+              <AnimatedHeroSlide active={currentSlide === i} />
             ) : (
               <AnimatedFeatureSlide
                 slide={slide}
@@ -743,7 +793,9 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: 16,
+    height: 96,
     borderRadius: 8,
+    transformOrigin: 'bottom',
   },
   // Habits checks
   checksRow: {

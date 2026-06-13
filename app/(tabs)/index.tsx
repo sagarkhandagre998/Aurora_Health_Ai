@@ -247,7 +247,7 @@ export default function DashboardScreen() {
             end={{ x: 1, y: 1 }}
           >
             <Text style={[styles.chipLabel, { color: theme.tint }]}>✨ Daily Insight</Text>
-            <Text style={[styles.insightText, { color: theme.text }]}>
+            <Text style={[styles.insightText, { color: theme.text }]} numberOfLines={3}>
               {insight?.text ??
                 'Your personalized insights will appear here as you build your health habits with Aurora.'}
             </Text>

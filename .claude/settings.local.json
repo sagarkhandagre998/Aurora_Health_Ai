@@ -14,7 +14,8 @@
       "Bash(adb logcat *)",
       "Bash(npx tsc *)",
       "Bash(adb shell *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "WebSearch"
     ],
     "deny": []
   }
