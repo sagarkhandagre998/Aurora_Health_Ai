@@ -26,7 +26,15 @@ import { DayBars, DayPills } from '@/components/charts/DayBars';
 import { formatDate } from '@/utils/date';
 import { RootState, AppDispatch } from '@/store';
 import { addMeal, removeMeal, setMeals } from '@/store/slices/nutritionSlice';
-import { Meal } from '@/types';
+import { setPlans, addPlan, removePlan, markPlanLogged } from '@/store/slices/mealPlanSlice';
+import { Meal, MealPlan, DietType } from '@/types';
+import {
+  generateMealPlan,
+  fetchMealPlans,
+  deleteMealPlan,
+  markMealPlanLogged,
+} from '@/lib/nutriCoach';
+import { MealPlanCard } from '@/components/nutrition/MealPlanCard';
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
@@ -35,6 +43,12 @@ const MEAL_TYPES: { key: MealType; label: string; emoji: string }[] = [
   { key: 'lunch', label: 'Lunch', emoji: '☀️' },
   { key: 'dinner', label: 'Dinner', emoji: '🌙' },
   { key: 'snack', label: 'Snack', emoji: '🍎' },
+];
+
+const DIET_TYPES: { key: DietType; label: string; emoji: string }[] = [
+  { key: 'veg', label: 'Veg', emoji: '🥗' },
+  { key: 'nonveg', label: 'Non-veg', emoji: '🍗' },
+  { key: 'vegan', label: 'Vegan', emoji: '🌱' },
 ];
 
 function MacroBar({
@@ -131,9 +145,22 @@ export default function NutritionScreen() {
   const { showToast } = useToast();
 
   const { meals, todayMeals } = useSelector((s: RootState) => s.nutrition);
+  const { plans } = useSelector((s: RootState) => s.mealPlan);
   const [refreshing, setRefreshing] = useState(false);
   const sheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['75%', '95%'], []);
+
+  // Nutri-Coach (AI meal preparation)
+  const coachSheetRef = useRef<BottomSheet>(null);
+  const coachSnapPoints = useMemo(() => ['80%', '95%'], []);
+  const [coachDiet, setCoachDiet] = useState<DietType>('veg');
+  const [coachProtein, setCoachProtein] = useState('');
+  const [coachCarbs, setCoachCarbs] = useState('');
+  const [coachFat, setCoachFat] = useState('');
+  const [coachCalories, setCoachCalories] = useState('');
+  const [coachMealType, setCoachMealType] = useState<MealType>('lunch');
+  const [generating, setGenerating] = useState(false);
+  const [generatedPlan, setGeneratedPlan] = useState<MealPlan | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
@@ -200,15 +227,26 @@ export default function NutritionScreen() {
     }
   }, [user?.id, dispatch]);
 
+  const loadPlans = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const rows = await fetchMealPlans(user.id);
+      dispatch(setPlans(rows));
+    } catch {
+      // non-fatal — plans section just stays as-is
+    }
+  }, [user?.id, dispatch]);
+
   useEffect(() => {
     fetchMeals();
-  }, [fetchMeals]);
+    loadPlans();
+  }, [fetchMeals, loadPlans]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchMeals();
+    await Promise.all([fetchMeals(), loadPlans()]);
     setRefreshing(false);
-  }, [fetchMeals]);
+  }, [fetchMeals, loadPlans]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -319,6 +357,114 @@ export default function NutritionScreen() {
     }
   }, [user?.id, mealName, mealType, calories, protein, carbs, fat, dispatch, showToast]);
 
+  // ── Nutri-Coach: generate a meal preparation ─────────────────────────────
+  const openCoach = useCallback(() => {
+    setGeneratedPlan(null);
+    coachSheetRef.current?.snapToIndex(0);
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    const targetMacros = {
+      protein: coachProtein ? parseFloat(coachProtein) : undefined,
+      carbs: coachCarbs ? parseFloat(coachCarbs) : undefined,
+      fat: coachFat ? parseFloat(coachFat) : undefined,
+      calories: coachCalories ? parseInt(coachCalories) : undefined,
+    };
+    if (
+      targetMacros.protein == null &&
+      targetMacros.carbs == null &&
+      targetMacros.fat == null &&
+      targetMacros.calories == null
+    ) {
+      showToast('Enter at least one macro target', 'error');
+      return;
+    }
+    setGenerating(true);
+    setGeneratedPlan(null);
+    try {
+      const plan = await generateMealPlan({
+        targetMacros,
+        dietType: coachDiet,
+        mealType: coachMealType,
+      });
+      dispatch(addPlan(plan));
+      setGeneratedPlan(plan);
+      coachSheetRef.current?.snapToIndex(1);
+      showToast('Meal prepared by Nutri-Coach ✨', 'success');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not generate a meal', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }, [
+    coachProtein,
+    coachCarbs,
+    coachFat,
+    coachCalories,
+    coachDiet,
+    coachMealType,
+    dispatch,
+    showToast,
+  ]);
+
+  // Log a generated/saved plan into today's meals.
+  const handleLogPlan = useCallback(
+    async (plan: MealPlan) => {
+      if (!user?.id) return;
+      const loggedAt = new Date().toISOString();
+      try {
+        const { data, error } = await supabase
+          .from('meals')
+          .insert({
+            user_id: user.id,
+            name: plan.name,
+            meal_type: plan.mealType,
+            calories: plan.calories ?? null,
+            protein_g: plan.proteinG ?? null,
+            carbs_g: plan.carbsG ?? null,
+            fat_g: plan.fatG ?? null,
+            logged_at: loggedAt,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        dispatch(
+          addMeal({
+            id: data.id,
+            name: data.name,
+            mealType: data.meal_type,
+            calories: data.calories ?? undefined,
+            proteinG: data.protein_g ?? undefined,
+            carbsG: data.carbs_g ?? undefined,
+            fatG: data.fat_g ?? undefined,
+            loggedAt: data.logged_at,
+          }),
+        );
+        dispatch(markPlanLogged(plan.id));
+        markMealPlanLogged(plan.id).catch(() => {});
+        if (generatedPlan?.id === plan.id) setGeneratedPlan({ ...generatedPlan, logged: true });
+        showToast('Meal logged 🍽️', 'success');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {
+        showToast('Could not log meal', 'error');
+      }
+    },
+    [user?.id, dispatch, showToast, generatedPlan],
+  );
+
+  const handleDeletePlan = useCallback(
+    async (plan: MealPlan) => {
+      dispatch(removePlan(plan.id));
+      try {
+        await deleteMealPlan(plan.id);
+      } catch {
+        showToast('Could not delete plan', 'error');
+      }
+    },
+    [dispatch, showToast],
+  );
+
   // Daily totals
   const totalCal = todayMeals.reduce((s, m) => s + (m.calories ?? 0), 0);
   const totalProt = todayMeals.reduce((s, m) => s + (m.proteinG ?? 0), 0);
@@ -396,6 +542,29 @@ export default function NutritionScreen() {
           </LinearGradient>
         </Animated.View>
 
+        {/* Nutri-Coach — AI meal preparation */}
+        <Animated.View entering={FadeInDown.delay(90).springify()}>
+          <TouchableOpacity activeOpacity={0.9} onPress={openCoach}>
+            <LinearGradient
+              colors={['#F5A623', '#FF7E5F']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.coachBand}
+            >
+              <View style={styles.coachIcon}>
+                <Ionicons name="restaurant" size={22} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.coachTitle}>Create a meal with Nutri-Coach</Text>
+                <Text style={styles.coachSub}>
+                  Tell me your macros &amp; diet — I&apos;ll prepare the perfect meal ✨
+                </Text>
+              </View>
+              <Ionicons name="sparkles" size={18} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+
         {/* Meals by type */}
         {MEAL_TYPES.map((mt, idx) => {
           const meals = mealsByType[mt.key];
@@ -421,9 +590,25 @@ export default function NutritionScreen() {
             <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
               <Text style={{ fontSize: 32, marginBottom: 12 }}>🍽️</Text>
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No meals logged today. Tap "Add Meal" to start tracking your nutrition!
+                No meals logged today. Tap &quot;Add Meal&quot; to start tracking your nutrition!
               </Text>
             </View>
+          </Animated.View>
+        )}
+
+        {/* Nutri-Coach meal plans */}
+        {plans.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(300).springify()}>
+            <View style={styles.plansHeader}>
+              <Ionicons name="sparkles" size={15} color={theme.nutrition} />
+              <Text style={[styles.plansTitle, { color: theme.text }]}>Nutri-Coach Meals</Text>
+              <Text style={[styles.plansCount, { color: theme.textSecondary }]}>
+                {plans.length}
+              </Text>
+            </View>
+            {plans.map((p) => (
+              <MealPlanCard key={p.id} plan={p} onLog={handleLogPlan} onDelete={handleDeletePlan} />
+            ))}
           </Animated.View>
         )}
 
@@ -640,6 +825,201 @@ export default function NutritionScreen() {
           </TouchableOpacity>
         </BottomSheetScrollView>
       </BottomSheet>
+
+      {/* Nutri-Coach — generate a meal preparation */}
+      <BottomSheet
+        ref={coachSheetRef}
+        index={-1}
+        snapPoints={coachSnapPoints}
+        enablePanDownToClose
+        backgroundStyle={{ backgroundColor: theme.card }}
+        handleIndicatorStyle={{ backgroundColor: theme.border }}
+      >
+        <BottomSheetScrollView
+          contentContainerStyle={[styles.sheetContent, { backgroundColor: theme.card }]}
+        >
+          <View style={styles.coachSheetHeader}>
+            <View style={[styles.coachIcon, { backgroundColor: theme.nutrition }]}>
+              <Ionicons name="restaurant" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sheetTitle, { color: theme.text, marginBottom: 2 }]}>
+                Nutri-Coach
+              </Text>
+              <Text style={[styles.coachSheetSub, { color: theme.textSecondary }]}>
+                Set your targets and I&apos;ll prepare a meal
+              </Text>
+            </View>
+          </View>
+
+          {/* Diet type */}
+          <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Diet preference</Text>
+          <View style={styles.typeRow}>
+            {DIET_TYPES.map((d) => (
+              <TouchableOpacity
+                key={d.key}
+                style={[
+                  styles.typeChip,
+                  {
+                    backgroundColor: coachDiet === d.key ? theme.nutrition : theme.background,
+                    borderColor: coachDiet === d.key ? theme.nutrition : theme.border,
+                  },
+                ]}
+                onPress={() => setCoachDiet(d.key)}
+              >
+                <Text style={{ fontSize: 16 }}>{d.emoji}</Text>
+                <Text
+                  style={[
+                    styles.typeChipText,
+                    { color: coachDiet === d.key ? '#fff' : theme.text },
+                  ]}
+                >
+                  {d.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Meal type */}
+          <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Meal type</Text>
+          <View style={styles.typeRow}>
+            {MEAL_TYPES.map((mt) => (
+              <TouchableOpacity
+                key={mt.key}
+                style={[
+                  styles.typeChip,
+                  {
+                    backgroundColor: coachMealType === mt.key ? theme.nutrition : theme.background,
+                    borderColor: coachMealType === mt.key ? theme.nutrition : theme.border,
+                  },
+                ]}
+                onPress={() => setCoachMealType(mt.key)}
+              >
+                <Text style={{ fontSize: 16 }}>{mt.emoji}</Text>
+                <Text
+                  style={[
+                    styles.typeChipText,
+                    { color: coachMealType === mt.key ? '#fff' : theme.text },
+                  ]}
+                >
+                  {mt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Target macros */}
+          <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+            Target macros (enter what matters to you)
+          </Text>
+          <View style={styles.macroInputRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Protein (g)</Text>
+              <BottomSheetTextInput
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.background,
+                  },
+                ]}
+                placeholder="e.g. 40"
+                placeholderTextColor={theme.textSecondary}
+                value={coachProtein}
+                onChangeText={setCoachProtein}
+                keyboardType="numeric"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Carbs (g)</Text>
+              <BottomSheetTextInput
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.background,
+                  },
+                ]}
+                placeholder="e.g. 50"
+                placeholderTextColor={theme.textSecondary}
+                value={coachCarbs}
+                onChangeText={setCoachCarbs}
+                keyboardType="numeric"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Fat (g)</Text>
+              <BottomSheetTextInput
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.background,
+                  },
+                ]}
+                placeholder="e.g. 15"
+                placeholderTextColor={theme.textSecondary}
+                value={coachFat}
+                onChangeText={setCoachFat}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+
+          <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+            Calories (kcal, optional)
+          </Text>
+          <BottomSheetTextInput
+            style={[
+              styles.input,
+              { color: theme.text, borderColor: theme.border, backgroundColor: theme.background },
+            ]}
+            placeholder="Optional"
+            placeholderTextColor={theme.textSecondary}
+            value={coachCalories}
+            onChangeText={setCoachCalories}
+            keyboardType="numeric"
+          />
+
+          <TouchableOpacity
+            style={{ opacity: generating ? 0.7 : 1, marginTop: 6 }}
+            onPress={handleGenerate}
+            disabled={generating}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#F5A623', '#FF7E5F']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.generateBtn}
+            >
+              {generating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="sparkles" size={18} color="#fff" />
+              )}
+              <Text style={styles.generateBtnText}>
+                {generating ? 'Preparing your meal…' : 'Generate Meal'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Generated result */}
+          {generatedPlan && (
+            <View style={{ marginTop: 18 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary, marginBottom: 8 }]}>
+                Your meal
+              </Text>
+              <MealPlanCard plan={generatedPlan} defaultExpanded onLog={handleLogPlan} />
+            </View>
+          )}
+
+          <View style={{ height: 30 }} />
+        </BottomSheetScrollView>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -736,4 +1116,53 @@ const styles = StyleSheet.create({
   macroInputRow: { flexDirection: 'row', gap: 10 },
   saveBtn: { borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 8 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Nutri-Coach band
+  coachBand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 20,
+    marginBottom: 4,
+    shadowColor: '#F5A623',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  coachIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  coachTitle: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
+  coachSub: { color: 'rgba(255,255,255,0.9)', fontSize: 12.5, marginTop: 2, lineHeight: 17 },
+
+  // Plans section
+  plansHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 22,
+    marginBottom: 12,
+  },
+  plansTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, flex: 1 },
+  plansCount: { fontSize: 13, fontWeight: '700' },
+
+  // Coach sheet
+  coachSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
+  coachSheetSub: { fontSize: 13, lineHeight: 18 },
+  generateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 16,
+  },
+  generateBtnText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
 });

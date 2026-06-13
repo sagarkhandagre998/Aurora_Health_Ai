@@ -29,6 +29,7 @@ export interface CompanionResponse {
 export async function sendToCompanion(
   messages: CompanionMessage[],
   useVoice = false,
+  voicePrefer: 'gemini' | 'elevenlabs' = 'elevenlabs',
 ): Promise<CompanionResponse> {
   // The last message is the new user turn; everything before it is history.
   const last = messages[messages.length - 1];
@@ -39,6 +40,7 @@ export async function sendToCompanion(
       message: last?.content ?? '',
       conversationHistory,
       useVoice,
+      voicePrefer,
     },
   });
 

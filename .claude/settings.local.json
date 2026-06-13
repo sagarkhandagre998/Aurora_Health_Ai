@@ -15,7 +15,8 @@
       "Bash(npx tsc *)",
       "Bash(adb shell *)",
       "Bash(npx eslint *)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep -vE '\\\\.\\(png|webp|jpg|json\\)$|^\\\\.expo|^android/|^ios/')"
     ],
     "deny": []
   }

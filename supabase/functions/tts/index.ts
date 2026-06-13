@@ -9,7 +9,15 @@
  * Fallback provider: ElevenLabs (Rachel, eleven_flash_v2_5). Used when Gemini
  * is rate-limited (429), errors, or has no API key. Returns mp3.
  *
- * Accepts JSON { text: string } and returns { audioBase64, mimeType, provider }.
+ * Provider order depends on the caller's `prefer` field:
+ *   prefer = 'gemini'      (Live flow)    → Gemini first, ElevenLabs fallback.
+ *   prefer = 'elevenlabs'  (general, def) → ElevenLabs first, Gemini fallback.
+ * The Live flow favours Gemini's lifelike voice; the general chat favours
+ * ElevenLabs' lower latency for snappier replies. Either way the other
+ * provider is the automatic fallback on rate-limit/error.
+ *
+ * Accepts JSON { text: string, prefer?: 'gemini' | 'elevenlabs' } and returns
+ * { audioBase64, mimeType, provider }.
  *
  * Deploy: supabase functions deploy tts
  * Env vars:
@@ -247,9 +255,13 @@ serve(async (req: Request) => {
 
     // ── Parse body ─────────────────────────────────────────────────────────
     let text: string;
+    let prefer: 'gemini' | 'elevenlabs';
     try {
-      const body = (await req.json()) as { text?: unknown };
+      const body = (await req.json()) as { text?: unknown; prefer?: unknown };
       text = typeof body?.text === 'string' ? body.text.trim() : '';
+      // Default to ElevenLabs-first (general chat) for lower latency; the Live
+      // flow explicitly passes prefer:'gemini' for the more lifelike voice.
+      prefer = body?.prefer === 'gemini' ? 'gemini' : 'elevenlabs';
     } catch {
       return json({ error: 'Request body must be JSON with a "text" field.' }, 400);
     }
@@ -279,10 +291,15 @@ serve(async (req: Request) => {
     if (!text) return json({ error: 'Nothing to speak after removing symbols.' }, 400);
     if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS);
 
-    // ── Gemini first, ElevenLabs fallback ──────────────────────────────────
+    // ── Synthesise, honouring the preferred provider with auto-fallback ────
     let result: TtsResult | null = null;
-    if (geminiKey) result = await tryGemini(text, geminiKey);
-    if (!result && elevenKey) result = await tryElevenLabs(text, elevenKey);
+    if (prefer === 'gemini') {
+      if (geminiKey) result = await tryGemini(text, geminiKey);
+      if (!result && elevenKey) result = await tryElevenLabs(text, elevenKey);
+    } else {
+      if (elevenKey) result = await tryElevenLabs(text, elevenKey);
+      if (!result && geminiKey) result = await tryGemini(text, geminiKey);
+    }
 
     if (!result) {
       return json({ error: 'All TTS providers failed.' }, 502);
