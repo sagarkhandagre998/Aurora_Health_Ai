@@ -66,6 +66,22 @@ export interface Meal {
   fatG?: number;
   loggedAt: string;
 }
+export type DietType = 'veg' | 'nonveg' | 'vegan';
+export interface MealPlan {
+  id: string;
+  name: string;
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  dietType?: DietType;
+  description?: string;
+  calories?: number;
+  proteinG?: number;
+  carbsG?: number;
+  fatG?: number;
+  ingredients: string[];
+  steps: string[];
+  logged: boolean;
+  createdAt: string;
+}
 export interface Streak {
   type: 'hydration' | 'sleep' | 'habit' | 'nutrition';
   current: number;

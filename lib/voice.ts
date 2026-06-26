@@ -83,8 +83,8 @@ export async function speakText(
   opts?: { onDone?: () => void; mimeType?: string },
 ): Promise<void> {
   if (audioBase64) {
-    // Gemini TTS returns WAV; ElevenLabs returns MP3. Match the file extension
-    // to the payload so expo-audio decodes it correctly.
+    // ElevenLabs returns MP3. Match the file extension to the payload's mime
+    // type so expo-audio decodes it correctly.
     const ext = opts?.mimeType?.includes('wav') ? 'wav' : 'mp3';
     const uri = `${FileSystem.cacheDirectory}aurora_tts.${ext}`;
     await FileSystem.writeAsStringAsync(uri, audioBase64, {
@@ -109,7 +109,7 @@ export async function speakText(
 }
 
 /**
- * Synthesise arbitrary text into Aurora's server voice (Gemini → ElevenLabs)
+ * Synthesise arbitrary text into Aurora's server voice (ElevenLabs)
  * via the `tts` edge function. Returns the audio payload, or null on failure
  * so callers can fall back to on-device TTS. Used for text we generate on the
  * client (e.g. the opening greeting) that doesn't come from the AI companion.

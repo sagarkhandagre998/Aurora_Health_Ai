@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Aurora",
-    "slug": "health-tracker",
+    "slug": "aurora",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -84,8 +84,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b0e91ca6-466a-4f15-8e9f-82ba7cda40d3"
+        "projectId": "7ac0f9d1-518e-4548-83b3-e284f0f5718a"
       }
-    }
+    },
+    "owner": "sagarkhandagre789"
   }
 }

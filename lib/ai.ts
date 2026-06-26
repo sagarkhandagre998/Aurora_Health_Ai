@@ -14,7 +14,7 @@ export interface CompanionResponse {
   replyText: string;
   actions: CompanionAction[];
   audioBase64?: string;
-  /** MIME type of audioBase64, e.g. 'audio/wav' (Gemini) or 'audio/mpeg' (ElevenLabs). */
+  /** MIME type of audioBase64, e.g. 'audio/mpeg' (ElevenLabs). */
   audioMimeType?: string;
 }
 

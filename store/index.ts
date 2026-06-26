@@ -6,6 +6,7 @@ import hydrationReducer from './slices/hydrationSlice';
 import sleepReducer from './slices/sleepSlice';
 import habitsReducer from './slices/habitsSlice';
 import nutritionReducer from './slices/nutritionSlice';
+import mealPlanReducer from './slices/mealPlanSlice';
 import streakReducer from './slices/streakSlice';
 import activityReducer from './slices/activitySlice';
 // Keep legacy health slice for any remaining references
@@ -18,6 +19,7 @@ const rootReducer = combineReducers({
   sleep: sleepReducer,
   habits: habitsReducer,
   nutrition: nutritionReducer,
+  mealPlan: mealPlanReducer,
   streak: streakReducer,
   activity: activityReducer,
 });
@@ -32,6 +34,7 @@ const persistConfig = {
     'sleep',
     'habits',
     'nutrition',
+    'mealPlan',
     'streak',
     'activity',
   ],

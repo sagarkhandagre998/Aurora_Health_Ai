@@ -4,7 +4,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
 import { useTheme } from '@/hooks/useTheme';
-import { FloatingCompanion } from '@/components/companion/FloatingCompanion';
+import { LiveCompanionOverlay } from '@/components/companion/LiveCompanionOverlay';
 import { AnimatedMicButton } from '@/components/companion/AnimatedMicButton';
 
 export default function TabLayout() {
@@ -116,8 +116,8 @@ export default function TabLayout() {
       />
       </Tabs>
 
-      {/* Global proactive Aurora presence — floats above all tabs. */}
-      <FloatingCompanion />
+      {/* Aurora Live — hands-free voice popup; persists across tab navigation. */}
+      <LiveCompanionOverlay />
     </View>
   );
 }

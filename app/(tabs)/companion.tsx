@@ -41,6 +41,7 @@ import {
 
 import { sendToCompanion, CompanionMessage } from '@/lib/ai';
 import { transcribeAudio, speakText, speakWithServerVoice, stopSpeaking } from '@/lib/voice';
+import { openLiveCompanion, useLiveCompanionOpen } from '@/lib/liveCompanion';
 
 type OrbStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -265,7 +266,10 @@ function MessageBubble({
 
   if (isUser) {
     return (
-      <Animated.View entering={FadeInUp.springify().damping(18)} style={[bubbleStyles.row, bubbleStyles.rowRight]}>
+      <Animated.View
+        entering={FadeInUp.springify().damping(18)}
+        style={[bubbleStyles.row, bubbleStyles.rowRight]}
+      >
         <LinearGradient
           colors={[theme.tint, '#6B5CE7']}
           start={{ x: 0, y: 0 }}
@@ -279,7 +283,10 @@ function MessageBubble({
   }
 
   return (
-    <Animated.View entering={FadeInUp.springify().damping(18)} style={[bubbleStyles.row, bubbleStyles.rowLeft]}>
+    <Animated.View
+      entering={FadeInUp.springify().damping(18)}
+      style={[bubbleStyles.row, bubbleStyles.rowLeft]}
+    >
       {/* Sparkle avatar */}
       <LinearGradient
         colors={['#4F7EF5', '#8B7CF0']}
@@ -290,7 +297,9 @@ function MessageBubble({
         <Ionicons name="sparkles" size={13} color="#fff" />
       </LinearGradient>
 
-      <View style={[bubbleStyles.aiBubble, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View
+        style={[bubbleStyles.aiBubble, { backgroundColor: theme.card, borderColor: theme.border }]}
+      >
         {isStreaming ? (
           <StreamingText
             text={msg.content}
@@ -304,7 +313,10 @@ function MessageBubble({
         {msg.actions && msg.actions.length > 0 && (
           <View style={bubbleStyles.actionsRow}>
             {msg.actions.map((a, i) => (
-              <View key={i} style={[bubbleStyles.actionChip, { backgroundColor: theme.success + '22' }]}>
+              <View
+                key={i}
+                style={[bubbleStyles.actionChip, { backgroundColor: theme.success + '22' }]}
+              >
                 <Ionicons name="checkmark-circle" size={13} color={theme.success} />
                 <Text style={[bubbleStyles.actionText, { color: theme.success }]}>{a.tool}</Text>
               </View>
@@ -384,6 +396,14 @@ export default function CompanionScreen() {
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordStartRef = useRef(0);
 
+  // Aurora Live (hands-free) — managed by the global LiveCompanionOverlay.
+  const liveOpen = useLiveCompanionOpen();
+  const handleGoLive = useCallback(() => {
+    stopSpeaking();
+    setGreetingSpeaking(false);
+    openLiveCompanion();
+  }, []);
+
   const firstName = profile?.name?.trim().split(' ')[0] || 'there';
   const firstNameRef = useRef(firstName);
   firstNameRef.current = firstName;
@@ -394,7 +414,8 @@ export default function CompanionScreen() {
     const content = greetingText(firstName);
     setMessages((prev) => {
       if (prev.length === 0) return [{ id: 'greeting', role: 'assistant', content }];
-      if (prev.length === 1 && prev[0].id === 'greeting') return [{ id: 'greeting', role: 'assistant', content }];
+      if (prev.length === 1 && prev[0].id === 'greeting')
+        return [{ id: 'greeting', role: 'assistant', content }];
       return prev;
     });
     historyRef.current = [{ role: 'assistant', content }];
@@ -426,7 +447,9 @@ export default function CompanionScreen() {
         if (next.length > 30) next.splice(1, next.length - 30);
         return next;
       });
-      historyRef.current = [...historyRef.current, { role: msg.role, content: msg.content }].slice(-20);
+      historyRef.current = [...historyRef.current, { role: msg.role, content: msg.content }].slice(
+        -20,
+      );
       scrollToBottom();
     },
     [scrollToBottom],
@@ -508,6 +531,11 @@ export default function CompanionScreen() {
   // ── Recording: tap to start, tap to stop (Gemini-style) ──────────────────
   const startRecording = useCallback(async () => {
     if (status !== 'idle') return;
+    // Aurora Live owns the mic while it's open — don't start a second recorder.
+    if (liveOpen) {
+      showToast('Aurora Live is already listening', 'info');
+      return;
+    }
     stopSpeaking();
     setGreetingSpeaking(false);
     try {
@@ -527,7 +555,7 @@ export default function CompanionScreen() {
       setStatus('idle');
       showToast(err instanceof Error ? err.message : 'Microphone not available', 'error');
     }
-  }, [status, showToast, audioRecorder]);
+  }, [status, showToast, audioRecorder, liveOpen]);
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
@@ -558,7 +586,9 @@ export default function CompanionScreen() {
       setStreamSpeaking(true);
       setStreamingId(aid);
       if (res.replyText) {
-        speakText(res.replyText, res.audioBase64).catch((e) => console.error('[Aurora] speak failed:', e));
+        speakText(res.replyText, res.audioBase64).catch((e) =>
+          console.error('[Aurora] speak failed:', e),
+        );
       }
     } catch (err) {
       console.error('[Aurora] voice turn failed:', err);
@@ -599,7 +629,10 @@ export default function CompanionScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Animated.View entering={FadeInDown.springify().damping(16)} style={{ alignItems: 'center' }}>
+            <Animated.View
+              entering={FadeInDown.springify().damping(16)}
+              style={{ alignItems: 'center' }}
+            >
               <AuroraOrb status={orbStatus} size={116} />
             </Animated.View>
             <Animated.Text
@@ -612,14 +645,34 @@ export default function CompanionScreen() {
               entering={FadeInUp.delay(180).springify()}
               style={[styles.heroSub, { color: theme.textSecondary }]}
             >
-              I'm Aurora, your health companion. Ask me anything about your hydration, sleep, habits or nutrition.
+              I'm Aurora, your health companion. Ask me anything about your hydration, sleep, habits
+              or nutrition.
             </Animated.Text>
+
+            <Animated.View entering={FadeInUp.delay(210).springify()} style={{ marginTop: 22 }}>
+              <TouchableOpacity onPress={handleGoLive} activeOpacity={0.85} disabled={liveOpen}>
+                <LinearGradient
+                  colors={liveOpen ? ['#22C55E', '#4CAF82'] : ['#4F7EF5', '#8B7CF0']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.goLiveBtn}
+                >
+                  <Ionicons name="radio" size={18} color="#fff" />
+                  <Text style={styles.goLiveText}>
+                    {liveOpen ? 'Aurora Live is on' : 'Go Live — hands-free'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </Animated.View>
 
             <View style={styles.heroChips}>
               {SUGGESTED_PROMPTS.map((p, i) => (
                 <Animated.View key={i} entering={FadeInUp.delay(240 + i * 60).springify()}>
                   <TouchableOpacity
-                    style={[styles.suggestChip, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    style={[
+                      styles.suggestChip,
+                      { backgroundColor: theme.card, borderColor: theme.border },
+                    ]}
                     onPress={() => handlePrompt(p)}
                     activeOpacity={0.8}
                   >
@@ -634,9 +687,35 @@ export default function CompanionScreen() {
             {/* Compact orb header + new-conversation button */}
             <View style={styles.header}>
               <AuroraOrb status={orbStatus} size={64} />
-              <Text style={[styles.statusLabel, { color: theme.textSecondary }]}>{STATUS_LABELS[orbStatus]}</Text>
+              <Text style={[styles.statusLabel, { color: theme.textSecondary }]}>
+                {STATUS_LABELS[orbStatus]}
+              </Text>
               <TouchableOpacity
-                style={[styles.newChatBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[
+                  styles.liveChipBtn,
+                  {
+                    backgroundColor: liveOpen ? theme.success + '22' : theme.card,
+                    borderColor: liveOpen ? theme.success : theme.border,
+                  },
+                ]}
+                onPress={handleGoLive}
+                activeOpacity={0.8}
+                disabled={liveOpen}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Go Live — hands-free voice"
+              >
+                <Ionicons name="radio" size={15} color={liveOpen ? theme.success : theme.tint} />
+                <Text
+                  style={[styles.liveChipText, { color: liveOpen ? theme.success : theme.tint }]}
+                >
+                  {liveOpen ? 'Live' : 'Go Live'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.newChatBtn,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}
                 onPress={resetConversation}
                 activeOpacity={0.8}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -670,7 +749,9 @@ export default function CompanionScreen() {
                       <Ionicons name="sparkles" size={13} color="#fff" />
                     </View>
                     <ActivityIndicator size="small" color={theme.tint} />
-                    <Text style={[styles.thinkingText, { color: theme.textSecondary }]}>Aurora is thinking…</Text>
+                    <Text style={[styles.thinkingText, { color: theme.textSecondary }]}>
+                      Aurora is thinking…
+                    </Text>
                   </Animated.View>
                 ) : null
               }
@@ -685,7 +766,12 @@ export default function CompanionScreen() {
           experimentalBlurMethod="dimezisBlurView"
           style={[styles.inputBarBlur, { borderTopColor: theme.border }]}
         >
-          <View style={[styles.inputBar, { backgroundColor: theme.card + (Platform.OS === 'ios' ? 'D9' : 'FF') }]}>
+          <View
+            style={[
+              styles.inputBar,
+              { backgroundColor: theme.card + (Platform.OS === 'ios' ? 'D9' : 'FF') },
+            ]}
+          >
             <TextInput
               style={[styles.textInput, { color: theme.text, backgroundColor: theme.background }]}
               placeholder="Message Aurora…"
@@ -698,7 +784,10 @@ export default function CompanionScreen() {
               maxLength={500}
             />
             {textInput.trim().length > 0 ? (
-              <TouchableOpacity style={[styles.sendBtn, { backgroundColor: theme.tint }]} onPress={handleSendText}>
+              <TouchableOpacity
+                style={[styles.sendBtn, { backgroundColor: theme.tint }]}
+                onPress={handleSendText}
+              >
                 <Ionicons name="arrow-up" size={20} color="#fff" />
               </TouchableOpacity>
             ) : (
@@ -728,7 +817,9 @@ export default function CompanionScreen() {
           <View style={styles.overlayContent}>
             <AuroraOrb status="listening" size={140} />
             <Text style={[styles.overlayTitle, { color: theme.text }]}>Listening…</Text>
-            <Text style={[styles.overlayHint, { color: theme.textSecondary }]}>Tap stop when you're done</Text>
+            <Text style={[styles.overlayHint, { color: theme.textSecondary }]}>
+              Tap stop when you're done
+            </Text>
 
             <View style={styles.waveWrap}>
               <Waveform color={theme.tint} />
@@ -736,7 +827,10 @@ export default function CompanionScreen() {
 
             <View style={styles.overlayBtns}>
               <TouchableOpacity
-                style={[styles.cancelBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+                style={[
+                  styles.cancelBtn,
+                  { borderColor: theme.border, backgroundColor: theme.card },
+                ]}
                 onPress={cancelRecording}
                 activeOpacity={0.85}
               >
@@ -772,9 +866,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 40,
   },
-  heroGreeting: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginTop: 24, textAlign: 'center' },
+  heroGreeting: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginTop: 24,
+    textAlign: 'center',
+  },
   heroSub: { fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 10, maxWidth: 320 },
   heroChips: { marginTop: 30, gap: 10, width: '100%', alignItems: 'center' },
+  goLiveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    borderRadius: 26,
+    shadowColor: '#4F7EF5',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  goLiveText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
 
   // Chat header
   header: { alignItems: 'center', paddingTop: 8, paddingBottom: 6, justifyContent: 'center' },
@@ -792,9 +906,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   newChatText: { fontSize: 13, fontWeight: '700' },
+  liveChipBtn: {
+    position: 'absolute',
+    left: 16,
+    top: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  liveChipText: { fontSize: 13, fontWeight: '700' },
 
   listContent: { paddingBottom: 16, paddingTop: 4 },
-  thinkingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  thinkingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
   thinkingText: { fontSize: 14, fontWeight: '500', fontStyle: 'italic' },
 
   suggestChip: {
@@ -826,7 +959,13 @@ const styles = StyleSheet.create({
     maxHeight: 110,
     lineHeight: 20,
   },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   micBtn: {
     width: 46,
     height: 46,
@@ -841,7 +980,12 @@ const styles = StyleSheet.create({
   },
 
   // Recording overlay
-  overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', zIndex: 20 },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
   overlayContent: { alignItems: 'center', paddingHorizontal: 32 },
   overlayTitle: { fontSize: 24, fontWeight: '800', marginTop: 28, letterSpacing: -0.3 },
   overlayHint: { fontSize: 14, marginTop: 6 },

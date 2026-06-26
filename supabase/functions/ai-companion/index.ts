@@ -128,6 +128,35 @@ const TOOLS = [
     },
   },
   {
+    name: 'create_meal_plan',
+    description:
+      'Generate a single meal recipe (Nutri-Coach) that targets the macros the user wants and their diet preference, then save it to their plans. Before calling this, make sure you know (1) the target macros — at least one of protein, carbs, fat in grams (or calories) — and (2) the diet type (vegetarian, non-vegetarian, or vegan). Ask the user for these two things if they have not said them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        protein_g: { type: 'number', description: 'Target protein in grams.' },
+        carbs_g: { type: 'number', description: 'Target carbohydrates in grams.' },
+        fat_g: { type: 'number', description: 'Target fat in grams.' },
+        calories: { type: 'number', description: 'Target total calories. Optional.' },
+        diet_type: {
+          type: 'string',
+          enum: ['veg', 'nonveg', 'vegan'],
+          description: 'Diet preference: veg (vegetarian), nonveg (non-vegetarian), or vegan.',
+        },
+        meal_type: {
+          type: 'string',
+          enum: ['breakfast', 'lunch', 'dinner', 'snack'],
+          description: 'Which meal this is for. Optional.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional extra preferences, e.g. cuisine or allergies.',
+        },
+      },
+      required: ['diet_type'],
+    },
+  },
+  {
     name: 'get_progress',
     description: "Retrieve a summary of the user's health progress.",
     input_schema: {
@@ -174,6 +203,173 @@ const OPENAI_TOOLS = TOOLS.map((t) => ({
 }));
 
 
+// ─── Nutri-Coach recipe generation (shared by the create_meal_plan tool) ───────
+
+interface Provider {
+  name: string;
+  baseUrl: string;
+  key: string;
+  model: string;
+}
+
+function extractJson(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function recipeNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function recipeStrArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x).trim()).filter(Boolean);
+}
+
+interface GeneratedRecipe {
+  name: string;
+  description: string;
+  meal_type: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  ingredients: string[];
+  steps: string[];
+}
+
+async function generateRecipe(
+  providers: Provider[],
+  opts: {
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    calories?: number;
+    dietType: string;
+    mealType?: string;
+    note?: string;
+  },
+): Promise<GeneratedRecipe> {
+  const { protein, carbs, fat, calories, dietType, mealType, note } = opts;
+  const dietLabel =
+    dietType === 'nonveg' ? 'non-vegetarian' : dietType === 'vegan' ? 'vegan' : 'vegetarian';
+  const targetLines = [
+    protein != null ? `protein ≈ ${protein} g` : '',
+    carbs != null ? `carbs ≈ ${carbs} g` : '',
+    fat != null ? `fat ≈ ${fat} g` : '',
+    calories != null ? `calories ≈ ${calories} kcal` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  const systemPrompt = [
+    'You are Nutri-Coach, an expert nutritionist and chef.',
+    'Design ONE realistic, tasty meal that hits the requested macro targets as closely as possible.',
+    `The meal MUST be ${dietLabel}.`,
+    'Reply with ONLY a valid JSON object — no prose, no markdown, no code fences:',
+    '{ "name": string, "description": string, "meal_type": "breakfast"|"lunch"|"dinner"|"snack", "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "ingredients": string[], "steps": string[] }',
+    'Ingredients must include quantities. Steps must be concise and ordered. Achieved macros must be realistic for the ingredients.',
+  ].join('\n');
+  const userPrompt = [
+    `Create a ${dietLabel} ${mealType ? mealType + ' ' : ''}meal.`,
+    targetLines ? `Target macros: ${targetLines}.` : '',
+    note ? `Preferences: ${note}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  let lastErr = '';
+  // deno-lint-ignore no-explicit-any
+  let aiData: any = null;
+  for (const p of providers) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${p.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}` },
+          body: JSON.stringify({
+            model: p.model,
+            // gpt-oss-120b is a reasoning model: without reasoning_effort=low
+            // it spends the whole token budget on hidden reasoning and returns
+            // empty content (finish_reason=length). We parse JSON from the
+            // reply ourselves rather than using response_format json_object,
+            // which can suppress visible content on these providers.
+            reasoning_effort: 'low',
+            max_tokens: 3000,
+            temperature: 0.7,
+            messages,
+          }),
+        });
+      } catch (e) {
+        lastErr = `${p.name} fetch failed: ${(e as Error).message}`;
+        break;
+      }
+      if (res.ok) {
+        aiData = await res.json();
+        break;
+      }
+      lastErr = `${p.name} ${res.status}: ${await res.text()}`;
+      if (res.status === 429 || res.status >= 500) {
+        await sleep(400 * Math.pow(2, attempt));
+        continue;
+      }
+      break;
+    }
+    if (aiData) break;
+  }
+  if (!aiData) throw new Error(`Recipe generation failed. Last: ${lastErr || 'unknown'}`);
+
+  const content = (aiData?.choices?.[0]?.message?.content ?? '').trim();
+  const jsonStr = extractJson(content);
+  if (!jsonStr) {
+    console.error(
+      '[ai-companion] generateRecipe no JSON. finish_reason=',
+      aiData?.choices?.[0]?.finish_reason,
+      'content=',
+      content.slice(0, 400),
+    );
+    throw new Error('Could not produce a recipe.');
+  }
+  const raw = JSON.parse(jsonStr) as Partial<GeneratedRecipe>;
+
+  const valid = ['breakfast', 'lunch', 'dinner', 'snack'];
+  const resolvedMealType =
+    mealType && valid.includes(mealType)
+      ? mealType
+      : valid.includes(String(raw.meal_type))
+        ? String(raw.meal_type)
+        : 'lunch';
+
+  return {
+    name: String(raw.name ?? 'Custom meal').trim(),
+    description: String(raw.description ?? '').trim(),
+    meal_type: resolvedMealType,
+    calories: recipeNum(raw.calories),
+    protein_g: recipeNum(raw.protein_g),
+    carbs_g: recipeNum(raw.carbs_g),
+    fat_g: recipeNum(raw.fat_g),
+    ingredients: recipeStrArray(raw.ingredients),
+    steps: recipeStrArray(raw.steps),
+  };
+}
+
 // deno-lint-ignore no-explicit-any
 async function executeTool(
   // deno-lint-ignore no-explicit-any
@@ -182,6 +378,7 @@ async function executeTool(
   today: string,
   toolName: string,
   input: Record<string, unknown>,
+  providers: Provider[],
 ): Promise<Record<string, unknown>> {
   switch (toolName) {
     // ── add_water ──────────────────────────────────────────────────────────
@@ -272,6 +469,46 @@ async function executeTool(
       });
       if (error) throw new Error(`DB error: ${error.message}`);
       return { success: true, meal: input.name, meal_type: input.meal_type };
+    }
+
+    // ── create_meal_plan (Nutri-Coach) ───────────────────────────────────────
+    case 'create_meal_plan': {
+      const dietType = (input.diet_type as string | undefined) ?? 'veg';
+      const recipe = await generateRecipe(providers, {
+        protein: input.protein_g !== undefined ? Number(input.protein_g) : undefined,
+        carbs: input.carbs_g !== undefined ? Number(input.carbs_g) : undefined,
+        fat: input.fat_g !== undefined ? Number(input.fat_g) : undefined,
+        calories: input.calories !== undefined ? Number(input.calories) : undefined,
+        dietType,
+        mealType: input.meal_type as string | undefined,
+        note: input.note as string | undefined,
+      });
+
+      const { error } = await supabase.from('meal_plans').insert({
+        user_id: userId,
+        name: recipe.name,
+        meal_type: recipe.meal_type,
+        diet_type: dietType,
+        description: recipe.description,
+        calories: recipe.calories,
+        protein_g: recipe.protein_g,
+        carbs_g: recipe.carbs_g,
+        fat_g: recipe.fat_g,
+        ingredients: recipe.ingredients,
+        steps: recipe.steps,
+        logged: false,
+      });
+      if (error) throw new Error(`DB error: ${error.message}`);
+
+      return {
+        success: true,
+        meal: recipe.name,
+        meal_type: recipe.meal_type,
+        calories: recipe.calories,
+        protein_g: recipe.protein_g,
+        carbs_g: recipe.carbs_g,
+        fat_g: recipe.fat_g,
+      };
     }
 
     // ── get_progress ───────────────────────────────────────────────────────
@@ -377,13 +614,6 @@ serve(async (req: Request) => {
     // name); Groq under GROQ_API_KEY.
     const cerebrasKey = Deno.env.get('CEREBRAS_API_KEY') ?? Deno.env.get('ANTHROPIC_API_KEY');
     const groqKey = Deno.env.get('GROQ_API_KEY');
-
-    interface Provider {
-      name: string;
-      baseUrl: string;
-      key: string;
-      model: string;
-    }
 
     const providers: Provider[] = [];
     if (cerebrasKey) {
@@ -493,6 +723,7 @@ serve(async (req: Request) => {
       `When summarizing data (e.g. a weekly summary), weave the numbers into conversational sentences. For example, say "You're doing great this week! You drank about 1.25 litres of water and slept around 7 hours a night on average." — NOT a bulleted list of stats.`,
       `Keep replies SHORT and speech-friendly (2–3 sentences max for voice). Be encouraging, warm, and personal.`,
       `When the user asks you to log something, use the appropriate tool and always confirm what you recorded.`,
+      `If the user asks you to create, prepare, plan or suggest a meal, use the create_meal_plan tool. Before calling it, make sure you know two things: the target macros (at least one of protein, carbs or fat in grams, or calories) AND whether they want vegetarian, non-vegetarian or vegan. If either is missing, ask for it in one short friendly question first. After it's created, tell them the dish name and that it's saved in their Nutrition tab.`,
       `If you're unsure about a value (e.g. calories), make a reasonable estimate and mention it.`,
     ]
       .filter(Boolean)
@@ -611,7 +842,7 @@ serve(async (req: Request) => {
           let result: unknown;
           try {
             const args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-            result = await executeTool(supabase, user.id, today, call.function.name, args);
+            result = await executeTool(supabase, user.id, today, call.function.name, args, providers);
             actions.push(call.function.name);
           } catch (err) {
             result = { error: (err as Error).message };
