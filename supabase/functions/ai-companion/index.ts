@@ -653,14 +653,10 @@ serve(async (req: Request) => {
       message,
       conversationHistory = [],
       useVoice = false,
-      voicePrefer = 'elevenlabs',
     } = body as {
       message: string;
       conversationHistory?: unknown[];
       useVoice?: boolean;
-      // Which TTS provider to try first: 'gemini' (Live flow) or 'elevenlabs'
-      // (general chat, default — lower latency).
-      voicePrefer?: 'gemini' | 'elevenlabs';
     };
 
     if (!message?.trim()) return json({ error: 'message is required' }, 400);
@@ -881,7 +877,7 @@ serve(async (req: Request) => {
             Authorization: authHeader,
             apikey: anonKey,
           },
-          body: JSON.stringify({ text: replyText, prefer: voicePrefer }),
+          body: JSON.stringify({ text: replyText }),
         });
         if (ttsRes.ok) {
           const ttsData = await ttsRes.json();

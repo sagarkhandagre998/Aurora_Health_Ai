@@ -375,8 +375,8 @@ function LiveCompanionOverlayInner() {
         let audioBase64: string | undefined;
         let audioMimeType: string | undefined;
         try {
-          // Live flow → Gemini voice first (most lifelike), ElevenLabs fallback.
-          const res = await sendToCompanion(historyRef.current, true, 'gemini');
+          // Live flow → ElevenLabs voice.
+          const res = await sendToCompanion(historyRef.current, true);
           reply = res.replyText;
           audioBase64 = res.audioBase64;
           audioMimeType = res.audioMimeType;

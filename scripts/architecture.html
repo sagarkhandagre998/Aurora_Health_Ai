@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aurora Health Tracker — Architecture Design</title>
+<style>
+  :root{
+    --ink:#1E2235; --muted:#5b6178; --bg:#ffffff; --soft:#F4F6FF;
+    --line:#E2E7F5; --primary:#4F7EF5; --primary-d:#3a63cc;
+    --hydration:#34C5FF; --sleep:#8B7CF0; --habits:#4CAF82;
+    --nutrition:#F5A623; --streak:#FF6B6B; --ai:#7C5CFC; --ext:#0EA5A0;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:11px; line-height:1.55; background:var(--bg);
+  }
+  /* ---- page setup ---- */
+  @page{ size:A4; margin:14mm 14mm 16mm 14mm; }
+  @page:first{ margin:0; }
+  .page{ page-break-after:always; }
+  .page:last-child{ page-break-after:auto; }
+  h1,h2,h3,h4{ margin:0 0 .35em; line-height:1.2; }
+  h2{ font-size:19px; color:var(--ink); border-bottom:3px solid var(--primary); padding-bottom:6px; margin-top:4px; }
+  h3{ font-size:14px; color:var(--primary-d); margin-top:16px; }
+  h4{ font-size:12px; color:var(--ink); margin-top:12px; }
+  p{ margin:.3em 0 .7em; }
+  .muted{ color:var(--muted); }
+  code{ font-family:"SF Mono",Menlo,Consolas,monospace; font-size:9.5px;
+        background:var(--soft); padding:1px 4px; border-radius:4px; color:#2b3a7a; }
+  ul{ margin:.3em 0 .8em; padding-left:18px; }
+  li{ margin:.18em 0; }
+  .small{ font-size:9.5px; }
+
+  /* ---- cover ---- */
+  .cover{
+    height:297mm; display:flex; flex-direction:column; justify-content:center;
+    padding:0 26mm; color:#fff; position:relative; overflow:hidden;
+    background:linear-gradient(150deg,#3a63cc 0%,#4F7EF5 42%,#7C5CFC 100%);
+  }
+  .cover .orb{ position:absolute; border-radius:50%; opacity:.18; background:#fff; }
+  .cover .orb.a{ width:420px; height:420px; top:-120px; right:-120px; }
+  .cover .orb.b{ width:260px; height:260px; bottom:-80px; left:-60px; opacity:.12; }
+  .cover .kicker{ font-size:13px; letter-spacing:4px; text-transform:uppercase; opacity:.85; }
+  .cover h1{ font-size:46px; font-weight:800; letter-spacing:-1px; margin:10px 0 6px; }
+  .cover .sub{ font-size:18px; font-weight:400; opacity:.92; max-width:520px; line-height:1.45; }
+  .cover .meta{ margin-top:46px; font-size:12px; opacity:.9; line-height:1.9; }
+  .cover .chipline{ margin-top:26px; display:flex; gap:8px; flex-wrap:wrap; }
+  .cover .chip{ background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.3);
+                padding:5px 12px; border-radius:999px; font-size:11px; }
+
+  /* ---- generic boxes / diagram primitives ---- */
+  .node{
+    border:1.5px solid var(--line); border-radius:10px; padding:8px 10px;
+    background:#fff; text-align:center; font-size:10px; box-shadow:0 1px 2px rgba(30,40,90,.05);
+  }
+  .node .t{ font-weight:700; display:block; font-size:10.5px; }
+  .node .d{ color:var(--muted); font-size:8.8px; display:block; margin-top:2px; }
+  .layer{ border-radius:12px; padding:10px 12px 12px; margin:10px 0; }
+  .layer h4{ margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.6px; }
+  .row{ display:flex; gap:8px; }
+  .row > *{ flex:1; }
+  .grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .grid2{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .arrow{ text-align:center; color:var(--primary); font-size:15px; line-height:1; margin:3px 0; font-weight:700; }
+
+  .L-client{ background:#eef3ff; border:1px solid #d6e1ff; }
+  .L-client h4{ color:var(--primary-d); }
+  .L-edge{ background:#f3eeff; border:1px solid #e2d6ff; }
+  .L-edge h4{ color:#6b4bd6; }
+  .L-data{ background:#eafaf2; border:1px solid #cdeede; }
+  .L-data h4{ color:#2f8c5f; }
+  .L-ext{ background:#e9faf8; border:1px solid #cdeeea; }
+  .L-ext h4{ color:#0c8a85; }
+
+  .tag{ display:inline-block; padding:1px 6px; border-radius:5px; font-size:8.5px;
+        font-weight:700; color:#fff; }
+  .tag.ai{background:var(--ai);} .tag.ext{background:var(--ext);}
+  .tag.db{background:#2f8c5f;} .tag.cli{background:var(--primary);}
+
+  /* ---- tables ---- */
+  table{ width:100%; border-collapse:collapse; margin:8px 0 12px; font-size:9.3px; }
+  th,td{ border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top; }
+  th{ background:var(--soft); font-weight:700; color:var(--ink); }
+  tr:nth-child(even) td{ background:#fbfcff; }
+  .mono{ font-family:"SF Mono",Menlo,Consolas,monospace; font-size:8.8px; }
+
+  /* ---- callouts ---- */
+  .note{ border-left:3px solid var(--primary); background:#f5f8ff; padding:8px 12px;
+         border-radius:0 8px 8px 0; margin:10px 0; font-size:10px; }
+  .note.warn{ border-color:var(--nutrition); background:#fff8ec; }
+  .note.ok{ border-color:var(--habits); background:#eefaf2; }
+
+  /* ---- pipeline steps ---- */
+  .steps{ counter-reset:step; }
+  .step{ display:flex; gap:10px; margin:6px 0; align-items:flex-start; }
+  .step .n{ counter-increment:step; min-width:20px; height:20px; border-radius:50%;
+            background:var(--primary); color:#fff; font-weight:700; font-size:10px;
+            display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .step .n::before{ content:counter(step); }
+  .step .body{ font-size:10px; }
+  .step .body b{ color:var(--primary-d); }
+
+  .legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:9px; margin:6px 0 2px; }
+  .legend span{ display:flex; align-items:center; gap:5px; }
+  .dot{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+  .toc{ font-size:11.5px; }
+  .toc li{ margin:.35em 0; }
+  .toc .num{ color:var(--primary); font-weight:700; display:inline-block; width:22px; }
+  footer.pf{ position:fixed; bottom:6mm; left:14mm; right:14mm; font-size:8px;
+             color:var(--muted); display:flex; justify-content:space-between;
+             border-top:1px solid var(--line); padding-top:3px; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover page">
+  <div class="orb a"></div><div class="orb b"></div>
+  <div class="kicker">System Architecture Design</div>
+  <h1>Aurora<br>Health Tracker</h1>
+  <div class="sub">An AI-native, voice-first health companion built on Expo / React Native and Supabase Edge Functions — full system pipeline &amp; design reference.</div>
+  <div class="chipline">
+    <span class="chip">Expo 54 · React Native 0.81</span>
+    <span class="chip">Supabase · Postgres · Deno</span>
+    <span class="chip">Cerebras / Groq LLM</span>
+    <span class="chip">ElevenLabs · Whisper</span>
+    <span class="chip">HealthKit · Health Connect</span>
+  </div>
+  <div class="meta">
+    <b>Document:</b> Architecture &amp; Data-Flow Design<br>
+    <b>Version:</b> 1.0 &nbsp;·&nbsp; <b>Date:</b> 15 June 2026<br>
+    <b>Scope:</b> Mobile client, edge backend, AI pipeline, data model, integrations
+  </div>
+</div>
+
+<!-- ============ TOC + OVERVIEW ============ -->
+<div class="page">
+  <h2>Contents</h2>
+  <ol class="toc" style="list-style:none;padding-left:0;">
+    <li><span class="num">1</span> Executive Overview</li>
+    <li><span class="num">2</span> High-Level System Architecture</li>
+    <li><span class="num">3</span> Technology Stack</li>
+    <li><span class="num">4</span> Frontend Architecture (Mobile Client)</li>
+    <li><span class="num">5</span> Backend — Supabase Edge Functions</li>
+    <li><span class="num">6</span> The AI Companion Pipeline (deep dive)</li>
+    <li><span class="num">7</span> Voice Pipeline — STT → AI → TTS</li>
+    <li><span class="num">8</span> Data Model &amp; Security</li>
+    <li><span class="num">9</span> External Service Integrations</li>
+    <li><span class="num">10</span> Device Health Integration &amp; Sync</li>
+  </ol>
+
+  <h2 style="margin-top:22px;">1 · Executive Overview</h2>
+  <p>Aurora is a cross-platform health-tracking app whose distinguishing feature is <b>"Aurora"</b>, a warm, voice-first AI companion that can <i>act</i> on the user's behalf — logging water, sleep, habits and meals, generating recipes, and surfacing personalised daily insights. The system follows a strict <b>thin-client / secure-edge</b> design: the mobile app holds no third-party API keys, and every sensitive operation is proxied through authenticated Supabase Edge Functions.</p>
+
+  <div class="grid4" style="margin-top:10px;">
+    <div class="node"><span class="t" style="color:var(--primary)">Thin Client</span><span class="d">Expo RN app — UI, state, device sensors</span></div>
+    <div class="node"><span class="t" style="color:var(--ai)">Secure Edge</span><span class="d">5 Deno functions — AI, voice, insights</span></div>
+    <div class="node"><span class="t" style="color:#2f8c5f">Managed Data</span><span class="d">Postgres + RLS, per-user isolation</span></div>
+    <div class="node"><span class="t" style="color:var(--ext)">External AI</span><span class="d">LLM, STT &amp; TTS via provider fallback</span></div>
+  </div>
+
+  <h3>Design principles</h3>
+  <ul>
+    <li><b>Keys never leave the server.</b> Client ships only public Supabase + Google OAuth IDs; all LLM/voice keys live in Supabase secrets.</li>
+    <li><b>Provider resilience.</b> Every AI call uses a primary→fallback chain (Cerebras→Groq, Groq→OpenAI, ElevenLabs→device speech) with exponential-backoff retries.</li>
+    <li><b>Agentic, not chatty.</b> The companion uses tool-calling to mutate real data, then confirms in natural language.</li>
+    <li><b>Offline-tolerant device sync.</b> HealthKit / Health Connect data is de-duplicated and merged into a persisted Redux store.</li>
+    <li><b>Per-user data isolation</b> enforced at the database layer via Row-Level Security on every table.</li>
+  </ul>
+</div>
+
+<!-- ============ HIGH LEVEL ARCH ============ -->
+<div class="page">
+  <h2>2 · High-Level System Architecture</h2>
+  <p class="muted">Four layers, top-to-bottom. Arrows are HTTPS calls; the client never talks to external AI providers directly.</p>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--primary)"></i>Client</span>
+    <span><i class="dot" style="background:var(--ai)"></i>Edge Function</span>
+    <span><i class="dot" style="background:#2f8c5f"></i>Database</span>
+    <span><i class="dot" style="background:var(--ext)"></i>External Service</span>
+  </div>
+
+  <div class="layer L-client">
+    <h4>① Mobile Client — Expo / React Native</h4>
+    <div class="grid4">
+      <div class="node"><span class="t">UI / Screens</span><span class="d">expo-router tabs, onboarding, auth</span></div>
+      <div class="node"><span class="t">Redux + Persist</span><span class="d">9 slices, AsyncStorage</span></div>
+      <div class="node"><span class="t">lib/ services</span><span class="d">ai, voice, health, nutriCoach</span></div>
+      <div class="node"><span class="t">Device APIs</span><span class="d">mic, speech, HealthKit/HC, haptics</span></div>
+    </div>
+  </div>
+
+  <div class="arrow">▼ &nbsp; supabase-js · JWT-authenticated HTTPS &nbsp; ▼</div>
+
+  <div class="layer L-edge">
+    <h4>② Supabase Edge Functions — Deno (server-side, holds secrets)</h4>
+    <div class="grid3" style="margin-bottom:8px;">
+      <div class="node"><span class="t">ai-companion</span><span class="d">agentic LLM + 8 tools</span></div>
+      <div class="node"><span class="t">nutri-coach</span><span class="d">recipe generation</span></div>
+      <div class="node"><span class="t">generate-insights</span><span class="d">daily insight</span></div>
+    </div>
+    <div class="grid2">
+      <div class="node"><span class="t">stt</span><span class="d">speech → text (Whisper)</span></div>
+      <div class="node"><span class="t">tts</span><span class="d">text → speech (ElevenLabs)</span></div>
+    </div>
+  </div>
+
+  <div class="row" style="align-items:stretch;">
+    <div style="flex:1;">
+      <div class="arrow">▼ &nbsp; SQL (service role) ▼</div>
+      <div class="layer L-data" style="margin-top:0;">
+        <h4>③ Postgres — Row-Level Security</h4>
+        <div class="grid3">
+          <div class="node small">profiles</div>
+          <div class="node small">water_logs</div>
+          <div class="node small">sleep_logs</div>
+          <div class="node small">habits</div>
+          <div class="node small">habit_completions</div>
+          <div class="node small">meals</div>
+          <div class="node small">meal_plans</div>
+          <div class="node small">streaks</div>
+          <div class="node small">health_memory</div>
+        </div>
+        <div class="node small" style="margin-top:8px;">insights &nbsp;·&nbsp; auth.users (Supabase Auth)</div>
+      </div>
+    </div>
+    <div style="flex:1;">
+      <div class="arrow">▼ &nbsp; REST (Bearer key) ▼</div>
+      <div class="layer L-ext" style="margin-top:0;">
+        <h4>④ External AI Services</h4>
+        <div class="node" style="margin-bottom:8px;"><span class="t">Cerebras</span><span class="d">gpt-oss-120b · primary LLM</span></div>
+        <div class="node" style="margin-bottom:8px;"><span class="t">Groq</span><span class="d">LLM fallback + Whisper STT</span></div>
+        <div class="node" style="margin-bottom:8px;"><span class="t">ElevenLabs</span><span class="d">neural TTS voice</span></div>
+        <div class="node"><span class="t">OpenAI</span><span class="d">Whisper STT fallback</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note ok"><b>Why this shape:</b> the edge layer is the single trust boundary. It authenticates the user (JWT → <code>auth.getUser</code>), enforces business rules, talks to AI providers with secret keys, and writes to RLS-protected tables. Compromising the client exposes no provider credentials and no other user's data.</div>
+</div>
+
+<!-- ============ TECH STACK ============ -->
+<div class="page">
+  <h2>3 · Technology Stack</h2>
+  <div class="grid2">
+    <div>
+      <h3>Client</h3>
+      <table>
+        <tr><th>Concern</th><th>Technology</th></tr>
+        <tr><td>Framework</td><td>Expo 54, React 19, React Native 0.81, TypeScript 5.9</td></tr>
+        <tr><td>Navigation</td><td>expo-router 6 (file-based), React Navigation 7 tabs</td></tr>
+        <tr><td>State</td><td>Redux Toolkit + redux-persist (AsyncStorage)</td></tr>
+        <tr><td>Forms</td><td>react-hook-form + Zod</td></tr>
+        <tr><td>UI / Motion</td><td>Reanimated 4, Gesture Handler, SVG, Skia, Gorhom Bottom Sheet</td></tr>
+        <tr><td>Charts</td><td>Victory Native, custom SVG rings &amp; bars</td></tr>
+        <tr><td>Voice / Audio</td><td>expo-audio (record/play), expo-speech (device TTS)</td></tr>
+        <tr><td>Health</td><td>react-native-health (iOS), react-native-health-connect (Android)</td></tr>
+        <tr><td>Auth</td><td>Supabase Auth, Google Sign-In, Apple Auth</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Backend &amp; AI</h3>
+      <table>
+        <tr><th>Concern</th><th>Technology</th></tr>
+        <tr><td>Runtime</td><td>Supabase Edge Functions (Deno, TypeScript)</td></tr>
+        <tr><td>Database</td><td>Supabase Postgres + Row-Level Security</td></tr>
+        <tr><td>Auth</td><td>Supabase Auth (JWT), OAuth providers</td></tr>
+        <tr><td>LLM (primary)</td><td>Cerebras — <span class="mono">gpt-oss-120b</span></td></tr>
+        <tr><td>LLM (fallback)</td><td>Groq — <span class="mono">openai/gpt-oss-120b</span></td></tr>
+        <tr><td>Speech-to-text</td><td>Groq Whisper-large-v3 → OpenAI whisper-1</td></tr>
+        <tr><td>Text-to-speech</td><td>ElevenLabs <span class="mono">eleven_flash_v2_5</span> → device speech</td></tr>
+        <tr><td>API style</td><td>OpenAI Chat Completions (tool calling)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Repository layout</h3>
+  <div class="grid3 small">
+    <div class="node"><span class="t">app/</span><span class="d">expo-router screens: (auth), (onboarding), (tabs)</span></div>
+    <div class="node"><span class="t">components/</span><span class="d">charts, companion, rings, bottle, nutrition, ui</span></div>
+    <div class="node"><span class="t">lib/</span><span class="d">supabase, ai, voice, health*, nutriCoach, insights</span></div>
+    <div class="node"><span class="t">store/</span><span class="d">Redux store + 9 slices</span></div>
+    <div class="node"><span class="t">hooks/ · utils/</span><span class="d">theme, health sync, date/report helpers</span></div>
+    <div class="node"><span class="t">supabase/</span><span class="d">functions/ (5) + migrations/ (SQL)</span></div>
+  </div>
+</div>
+
+<!-- ============ FRONTEND ============ -->
+<div class="page">
+  <h2>4 · Frontend Architecture (Mobile Client)</h2>
+
+  <h3>Navigation hierarchy</h3>
+  <div class="layer L-client">
+    <h4>RootLayout — provider tree</h4>
+    <p class="small mono" style="margin:0 0 8px;">GestureHandler → SafeArea → Redux Provider → AuthProvider → Toast → BottomSheet → Theme</p>
+    <div class="grid3">
+      <div class="node"><span class="t">(auth)</span><span class="d">landing · login · signup<br>email/password + Google</span></div>
+      <div class="node"><span class="t">(onboarding)</span><span class="d">profile · lifestyle · goals · notifications</span></div>
+      <div class="node"><span class="t">(tabs)</span><span class="d">7 main screens (below)</span></div>
+    </div>
+    <p class="small muted" style="margin:8px 0 0;"><b>RootNavigator guard:</b> unauthenticated → (auth) · authenticated &amp; onboarding incomplete → (onboarding) · fully onboarded → (tabs).</p>
+  </div>
+
+  <h3>Main tab screens</h3>
+  <div class="grid4">
+    <div class="node"><span class="t">Dashboard</span><span class="d">greeting, 7-day activity, rings, insight card</span></div>
+    <div class="node"><span class="t">Hydration</span><span class="d">animated bottle, presets, confetti on goal</span></div>
+    <div class="node"><span class="t">Sleep</span><span class="d">log duration/quality, 7-day chart</span></div>
+    <div class="node"><span class="t">Companion</span><span class="d">voice chat with Aurora AI</span></div>
+    <div class="node"><span class="t">Habits</span><span class="d">create/complete, streak rings</span></div>
+    <div class="node"><span class="t">Nutrition</span><span class="d">log meals, macro donut, AI meal plans</span></div>
+    <div class="node"><span class="t">Profile</span><span class="d">goals, health toggles, AI memory list</span></div>
+    <div class="node"><span class="t">Reports / HC</span><span class="d">weekly progress · Health Connect setup</span></div>
+  </div>
+
+  <h3>State &amp; data layer</h3>
+  <div class="grid2">
+    <div>
+      <h4>Redux slices (persisted)</h4>
+      <div class="grid2 small">
+        <div class="node">profile</div><div class="node">hydration</div>
+        <div class="node">sleep</div><div class="node">habits</div>
+        <div class="node">nutrition</div><div class="node">mealPlan</div>
+        <div class="node">streak</div><div class="node">activity</div>
+      </div>
+      <p class="small muted">+ <code>health</code> (legacy). Auth/session lives in <code>AuthProvider</code> context.</p>
+    </div>
+    <div>
+      <h4>lib/ service modules</h4>
+      <table class="small">
+        <tr><td><code>supabase.ts</code></td><td>client + AsyncStorage session</td></tr>
+        <tr><td><code>ai.ts</code></td><td>sendToCompanion()</td></tr>
+        <tr><td><code>voice.ts</code></td><td>STT, TTS, device speech, strip-for-speech</td></tr>
+        <tr><td><code>healthProvider.ts</code></td><td>unified iOS/Android health API</td></tr>
+        <tr><td><code>healthSync.ts</code></td><td>HealthKit/HC → Redux, dedup</td></tr>
+        <tr><td><code>nutriCoach.ts</code></td><td>meal-plan CRUD</td></tr>
+        <tr><td><code>insights.ts</code></td><td>daily insight fetch + staleness guard</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Notable components</h3>
+  <div class="grid4 small">
+    <div class="node"><span class="t">LiveCompanionOverlay</span><span class="d">hands-free listen→reply loop, persists across tabs</span></div>
+    <div class="node"><span class="t">FloatingCompanion</span><span class="d">floating orb, proactive intro</span></div>
+    <div class="node"><span class="t">ProgressRing</span><span class="d">SVG + Reanimated activity ring</span></div>
+    <div class="node"><span class="t">WaterBottle</span><span class="d">animated fill + splash overlay</span></div>
+    <div class="node"><span class="t">DayBars / MacroDonut</span><span class="d">interactive charts</span></div>
+    <div class="node"><span class="t">MealPlanCard</span><span class="d">AI recipe display</span></div>
+    <div class="node"><span class="t">AnimatedMicButton</span><span class="d">center FAB, recording state</span></div>
+    <div class="node"><span class="t">Toast / Theme</span><span class="d">design system, light/dark</span></div>
+  </div>
+</div>
+
+<!-- ============ EDGE FUNCTIONS ============ -->
+<div class="page">
+  <h2>5 · Backend — Supabase Edge Functions</h2>
+  <p class="muted">All functions: <code>POST</code> · verify JWT via <code>supabase.auth.getUser()</code> · scope queries to the user · read secret keys server-side.</p>
+
+  <table>
+    <tr><th>Function</th><th>Purpose</th><th>External calls</th><th>Returns</th></tr>
+    <tr>
+      <td><b>ai-companion</b> <span class="tag ai">AI</span></td>
+      <td>Agentic health coach. Loads context, runs an LLM tool-calling loop, executes DB actions, optionally synthesises voice.</td>
+      <td>Cerebras → Groq LLM; calls <code>/tts</code></td>
+      <td><span class="mono">{replyText, actions[], audioBase64?}</span></td>
+    </tr>
+    <tr>
+      <td><b>nutri-coach</b> <span class="tag ai">AI</span></td>
+      <td>Generates a single recipe matching target macros + diet, persists to <code>meal_plans</code>.</td>
+      <td>Cerebras → Groq LLM</td>
+      <td><span class="mono">{plan:{…}}</span></td>
+    </tr>
+    <tr>
+      <td><b>generate-insights</b> <span class="tag ai">AI</span></td>
+      <td>One short daily insight from 7-day aggregates; staleness guard skips if &lt;20h old.</td>
+      <td>Groq / Cerebras LLM</td>
+      <td><span class="mono">{insight} | {skipped}</span></td>
+    </tr>
+    <tr>
+      <td><b>stt</b> <span class="tag ext">VOICE</span></td>
+      <td>Speech-to-text. Accepts multipart audio, returns transcript.</td>
+      <td>Groq Whisper → OpenAI</td>
+      <td><span class="mono">{transcript}</span></td>
+    </tr>
+    <tr>
+      <td><b>tts</b> <span class="tag ext">VOICE</span></td>
+      <td>Text-to-speech. Strips markdown/emoji, synthesises MP3.</td>
+      <td>ElevenLabs (→ device fallback)</td>
+      <td><span class="mono">{audioBase64, mimeType}</span></td>
+    </tr>
+  </table>
+
+  <h3>The companion's tool belt</h3>
+  <p class="small muted">The LLM cannot touch the database directly — it emits structured tool calls that the function executes against RLS-protected tables.</p>
+  <table>
+    <tr><th>Tool</th><th>Arguments</th><th>Effect</th></tr>
+    <tr><td><b>add_water</b></td><td><span class="mono">amount_ml</span></td><td>INSERT <code>water_logs</code></td></tr>
+    <tr><td><b>log_sleep</b></td><td><span class="mono">hours, date?, quality?</span></td><td>UPSERT <code>sleep_logs</code> (1/night)</td></tr>
+    <tr><td><b>create_habit</b></td><td><span class="mono">name, frequency?, target_per_day?</span></td><td>INSERT <code>habits</code></td></tr>
+    <tr><td><b>complete_habit</b></td><td><span class="mono">name</span></td><td>fuzzy-match + UPSERT <code>habit_completions</code></td></tr>
+    <tr><td><b>log_meal</b></td><td><span class="mono">name, meal_type, calories?, macros?</span></td><td>INSERT <code>meals</code></td></tr>
+    <tr><td><b>create_meal_plan</b></td><td><span class="mono">diet_type, macros?, meal_type?</span></td><td>generate recipe → INSERT <code>meal_plans</code></td></tr>
+    <tr><td><b>get_progress</b></td><td><span class="mono">range: today|week</span></td><td>aggregate read across tables</td></tr>
+    <tr><td><b>remember</b></td><td><span class="mono">observation</span></td><td>INSERT <code>health_memory</code></td></tr>
+  </table>
+</div>
+
+<!-- ============ AI PIPELINE DEEP DIVE ============ -->
+<div class="page">
+  <h2>6 · The AI Companion Pipeline</h2>
+  <p class="muted">A single user turn through <code>ai-companion</code>. The agent loop runs up to 5 iterations until the model stops requesting tools.</p>
+
+  <div class="steps">
+    <div class="step"><div class="n"></div><div class="body"><b>Authenticate.</b> Verify Bearer JWT → <code>auth.getUser()</code>; reject if invalid.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Load context.</b> Parallel reads: profile (name, goals), today's water sum, latest sleep, today's habit completions &amp; meals, 5 most-recent <code>health_memory</code> notes.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Build system prompt.</b> Aurora persona + the user's name &amp; live stats + recent observations + scope guard (health-only) + speech-friendly style rules.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Call LLM.</b> Cerebras <span class="mono">gpt-oss-120b</span> with messages + 8-tool schema, <code>reasoning_effort: low</code>. On 429/5xx → backoff retries → fall through to Groq.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Branch on finish_reason.</b> If <code>tool_use</code> → execute each tool against the DB, append results to history, loop back to step 4. Otherwise → take the final text.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Optional TTS.</b> If <code>useVoice</code>, POST replyText to <code>/tts</code> and attach <code>audioBase64</code>.</div></div>
+    <div class="step"><div class="n"></div><div class="body"><b>Respond.</b> Return <span class="mono">{ replyText, actions[], audioBase64? }</span>. Client plays audio, refreshes Redux, animates the affected screen.</div></div>
+  </div>
+
+  <h3>Agent loop (visual)</h3>
+  <div class="row" style="align-items:center;">
+    <div class="node" style="flex:1.2;"><span class="t">Context + Prompt</span><span class="d">user stats, memory, tools</span></div>
+    <div class="arrow" style="flex:.3;">▶</div>
+    <div class="node" style="flex:1; border-color:var(--ai);"><span class="t" style="color:var(--ai)">LLM</span><span class="d">Cerebras → Groq</span></div>
+    <div class="arrow" style="flex:.3;">▶</div>
+    <div class="node" style="flex:1;"><span class="t">finish_reason?</span><span class="d">tool_use / stop</span></div>
+  </div>
+  <div class="row" style="align-items:center; margin-top:6px;">
+    <div style="flex:1.2;"></div><div style="flex:.3;"></div>
+    <div style="flex:1; text-align:center;" class="small muted">▲ loop (≤5)</div>
+    <div style="flex:.3;"></div>
+    <div class="row" style="flex:1; gap:6px;">
+      <div class="node" style="border-color:#2f8c5f;"><span class="t" style="color:#2f8c5f">execute tool</span><span class="d">DB write</span></div>
+      <div class="node"><span class="t">final text</span><span class="d">→ TTS / reply</span></div>
+    </div>
+  </div>
+
+  <div class="note"><b>Provider strategy.</b> Voice turns prefer Groq (fast LPU inference); text turns prefer Cerebras (stronger reasoning). Both speak the OpenAI Chat Completions dialect, so the same message/tool format works across providers — the fallback is a drop-in swap.</div>
+  <div class="note warn"><b>Safety rails.</b> Max 5 agent turns prevents infinite tool loops · scope guard keeps Aurora on health topics · all tool writes are user-scoped &amp; RLS-enforced · recipe JSON is parsed defensively (first balanced object, numeric coercion).</div>
+</div>
+
+<!-- ============ VOICE PIPELINE ============ -->
+<div class="page">
+  <h2>7 · Voice Pipeline — STT → AI → TTS</h2>
+  <p class="muted">End-to-end hands-free flow: the user speaks "I drank 500 ml of water" and hears Aurora confirm while the bottle animates.</p>
+
+  <div class="layer L-client"><h4>Mobile</h4>
+    <div class="row">
+      <div class="node"><span class="t">1 · Record</span><span class="d">expo-audio → m4a/wav</span></div>
+      <div class="node"><span class="t">8 · Play reply</span><span class="d">expo-audio plays MP3</span></div>
+      <div class="node"><span class="t">9 · Update UI</span><span class="d">Redux refresh, animation, toast</span></div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+  <div class="layer L-edge"><h4>Edge — voice + AI</h4>
+    <div class="row">
+      <div class="node"><span class="t">2 · stt</span><span class="d">Whisper → transcript</span></div>
+      <div class="node"><span class="t">3–6 · ai-companion</span><span class="d">context → LLM → add_water → reply</span></div>
+      <div class="node"><span class="t">7 · tts</span><span class="d">clean text → ElevenLabs MP3</span></div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+  <div class="layer L-ext"><h4>External</h4>
+    <div class="row">
+      <div class="node"><span class="t">Groq Whisper</span><span class="d">large-v3 (→ OpenAI)</span></div>
+      <div class="node"><span class="t">Cerebras / Groq</span><span class="d">gpt-oss-120b</span></div>
+      <div class="node"><span class="t">ElevenLabs</span><span class="d">eleven_flash_v2_5 (→ device speech)</span></div>
+    </div>
+  </div>
+
+  <h3>Graceful degradation</h3>
+  <table>
+    <tr><th>Stage</th><th>Primary</th><th>Fallback 1</th><th>Fallback 2</th></tr>
+    <tr><td>Speech-to-text</td><td>Groq Whisper-large-v3</td><td>OpenAI whisper-1</td><td>503 → typed input</td></tr>
+    <tr><td>LLM reasoning</td><td>Cerebras gpt-oss-120b</td><td>Groq gpt-oss-120b</td><td>error surfaced to client</td></tr>
+    <tr><td>Text-to-speech</td><td>ElevenLabs flash v2.5</td><td>on-device expo-speech</td><td>silent (text only)</td></tr>
+  </table>
+  <div class="note ok"><b>Result:</b> a provider outage never breaks the app — it degrades one notch (e.g. neural voice → device voice) and keeps functioning.</div>
+</div>
+
+<!-- ============ DATA MODEL ============ -->
+<div class="page">
+  <h2>8 · Data Model &amp; Security</h2>
+  <p class="muted">Postgres, managed by Supabase. Every table keys off <code>auth.users</code> and carries an "own-rows" RLS policy (<code>auth.uid() = user_id</code>).</p>
+
+  <table>
+    <tr><th>Table</th><th>Key columns</th><th>Notes / relationships</th></tr>
+    <tr><td><b>profiles</b></td><td>id (PK=auth.users), name, age, gender, height_cm, weight_kg, wake_time, bedtime, activity_level, goals[], notification_prefs, onboarding_complete</td><td>auto-created by <code>handle_new_user()</code> trigger on signup</td></tr>
+    <tr><td><b>water_logs</b></td><td>user_id, amount_ml, logged_at, source, hk_uuid</td><td><code>source</code>+<code>hk_uuid</code> dedup HealthKit imports</td></tr>
+    <tr><td><b>sleep_logs</b></td><td>user_id, date, duration_min, quality, source, hk_uuid</td><td>unique(user_id, date) — one night/day</td></tr>
+    <tr><td><b>habits</b></td><td>user_id, name, icon, frequency, target_per_day, status</td><td>active / paused</td></tr>
+    <tr><td><b>habit_completions</b></td><td>user_id, habit_id, date, count</td><td>unique(habit_id, date)</td></tr>
+    <tr><td><b>meals</b></td><td>user_id, name, meal_type, calories, protein_g, carbs_g, fat_g, logged_at</td><td>manual or AI-logged</td></tr>
+    <tr><td><b>meal_plans</b></td><td>user_id, name, diet_type, macros, ingredients[], steps[], logged</td><td>AI recipe output (nutri-coach)</td></tr>
+    <tr><td><b>streaks</b></td><td>user_id, type, current, longest, last_date</td><td>PK(user_id, type)</td></tr>
+    <tr><td><b>health_memory</b></td><td>user_id, observation, created_at</td><td>feeds AI system prompt (continuity)</td></tr>
+    <tr><td><b>insights</b></td><td>user_id, text, category, created_at</td><td>daily generated card</td></tr>
+  </table>
+
+  <div class="grid2">
+    <div class="note"><b>Triggers.</b> <code>handle_new_user()</code> seeds a profile row on auth signup; <code>set_updated_at()</code> refreshes <code>profiles.updated_at</code> on every update.</div>
+    <div class="note warn"><b>Defence in depth.</b> Even though edge functions use the service-role key, RLS policies still scope every table to the owning user — a logic bug cannot leak another user's health data.</div>
+  </div>
+
+  <h3>Authentication flow</h3>
+  <div class="row">
+    <div class="node"><span class="t">Sign in</span><span class="d">email/pw · Google · Apple</span></div>
+    <div class="arrow" style="flex:.2;">▶</div>
+    <div class="node"><span class="t">Session</span><span class="d">JWT in AsyncStorage, auto-refresh</span></div>
+    <div class="arrow" style="flex:.2;">▶</div>
+    <div class="node"><span class="t">Each request</span><span class="d">Bearer token → function</span></div>
+    <div class="arrow" style="flex:.2;">▶</div>
+    <div class="node"><span class="t">Verify + scope</span><span class="d">getUser() → RLS by uid</span></div>
+  </div>
+</div>
+
+<!-- ============ EXTERNAL + HEALTH ============ -->
+<div class="page">
+  <h2>9 · External Service Integrations</h2>
+  <table>
+    <tr><th>Service</th><th>Role</th><th>Endpoint / model</th><th>Secret</th></tr>
+    <tr><td><b>Cerebras</b></td><td>Primary LLM (reasoning, tools, recipes)</td><td><span class="mono">api.cerebras.ai · gpt-oss-120b</span></td><td><span class="mono">CEREBRAS_API_KEY</span></td></tr>
+    <tr><td><b>Groq</b></td><td>LLM fallback + Whisper STT (fast)</td><td><span class="mono">api.groq.com · gpt-oss-120b / whisper-large-v3</span></td><td><span class="mono">GROQ_API_KEY</span></td></tr>
+    <tr><td><b>ElevenLabs</b></td><td>Neural text-to-speech</td><td><span class="mono">api.elevenlabs.io · eleven_flash_v2_5</span></td><td><span class="mono">ELEVENLABS_API_KEY</span></td></tr>
+    <tr><td><b>OpenAI</b></td><td>Whisper STT fallback</td><td><span class="mono">api.openai.com · whisper-1</span></td><td><span class="mono">OPENAI_API_KEY</span></td></tr>
+    <tr><td><b>Google / Apple</b></td><td>OAuth sign-in</td><td>native SDK → Supabase session</td><td>public client IDs</td></tr>
+  </table>
+
+  <h3>Secret &amp; config inventory</h3>
+  <div class="grid2">
+    <div>
+      <h4>Server secrets (Supabase)</h4>
+      <ul class="small">
+        <li><code>CEREBRAS_API_KEY</code> · <code>GROQ_API_KEY</code></li>
+        <li><code>ELEVENLABS_API_KEY</code> · <code>OPENAI_API_KEY</code></li>
+        <li><code>SUPABASE_URL</code> · <code>SUPABASE_SERVICE_ROLE_KEY</code> · <code>SUPABASE_ANON_KEY</code></li>
+        <li>optional: <code>AI_MODEL</code>, <code>GROQ_MODEL</code></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Client config (shippable)</h4>
+      <ul class="small">
+        <li><code>EXPO_PUBLIC_SUPABASE_URL</code></li>
+        <li><code>EXPO_PUBLIC_SUPABASE_ANON_KEY</code></li>
+        <li><code>EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID</code></li>
+        <li><code>EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 style="margin-top:20px;">10 · Device Health Integration &amp; Sync</h2>
+  <p class="muted">A single client abstraction (<code>healthProvider.ts</code>) hides the platform behind one API.</p>
+  <div class="row">
+    <div class="node"><span class="t">iOS</span><span class="d">react-native-health → HealthKit</span></div>
+    <div class="arrow" style="flex:.2;">▶</div>
+    <div class="node" style="border-color:var(--primary);"><span class="t" style="color:var(--primary)">healthProvider</span><span class="d">isAvailable, requestPermissions, get*Series, saveWater</span></div>
+    <div class="arrow" style="flex:.2;">◀</div>
+    <div class="node"><span class="t">Android</span><span class="d">react-native-health-connect</span></div>
+  </div>
+  <div class="arrow">▼ &nbsp; healthSync.ts &nbsp; ▼</div>
+  <div class="row">
+    <div class="node"><span class="t">Read</span><span class="d">steps, active energy, sleep, water</span></div>
+    <div class="node"><span class="t">Aggregate</span><span class="d">collapse raw sleep → one night/date</span></div>
+    <div class="node"><span class="t">Dedup</span><span class="d">skip app-written samples (own source)</span></div>
+    <div class="node"><span class="t">Persist</span><span class="d">→ Redux activity slice</span></div>
+  </div>
+  <div class="note"><b>Trigger:</b> <code>useHealthSync</code> runs on mount and on app-foreground, throttled to a 1-minute minimum interval, so dashboards stay fresh without redundant native calls.</div>
+
+  <div style="margin-top:26px; text-align:center; color:var(--muted); font-size:9px; border-top:1px solid var(--line); padding-top:8px;">
+    Aurora Health Tracker · Architecture &amp; Data-Flow Design · v1.0 · 15 June 2026 · Generated from source analysis
+  </div>
+</div>
+
+</body>
+</html>
